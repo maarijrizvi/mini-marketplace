@@ -1,0 +1,370 @@
+/* Karachi Kings palette from the design canvas: navy and gold. */
+:root {
+  --navy: #0b1f4d;
+  --navy-2: #14306e;
+  --gold: #f2b705;
+  --gold-2: #d9a200;
+  --ink: #0b1f4d;
+  --ink-2: #34405a;
+  --muted: #4f5b75;
+  --line: #dde3ee;
+  --line-2: #c9d2e3;
+  --bg: #f3f5fa;
+  --card: #ffffff;
+  --link: #1e46a8;
+  --bad: #9e2318;
+  --bad-bg: #fce9e7;
+  --ok: #17603a;
+  --ok-bg: #e3f2e9;
+  --warn: #8a4200;
+  --warn-bg: #fff0dc;
+  --info-bg: #e8ecfb;
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--link);
+  font-weight: 600;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+h1,
+h2 {
+  margin: 0;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: var(--radius);
+  border: 1px solid var(--gold);
+  background: var(--gold);
+  color: var(--navy);
+  font:
+    700 16px var(--font-sans),
+    sans-serif;
+  cursor: pointer;
+  width: 100%;
+}
+.btn:hover {
+  background: var(--gold-2);
+  border-color: var(--gold-2);
+  text-decoration: none;
+}
+.btn:disabled {
+  background: #e8ecf4;
+  border-color: #e8ecf4;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.btn.navy {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.btn.ghost {
+  background: #fff;
+  border-color: var(--line-2);
+  color: var(--navy);
+}
+
+.link-btn {
+  all: unset;
+  cursor: pointer;
+  color: var(--link);
+  font-weight: 600;
+  font-size: 14px;
+}
+.link-btn:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lbl {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.input {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  background: #fff;
+  font: inherit;
+  color: var(--ink);
+  width: 100%;
+}
+.input:focus {
+  outline: 3px solid rgba(242, 183, 5, 0.45);
+  border-color: var(--gold-2);
+}
+.input.err {
+  border-color: var(--bad);
+}
+textarea.input {
+  min-height: 90px;
+  padding: 10px 14px;
+}
+.hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.errmsg {
+  margin: 0;
+  font-size: 13px;
+  color: var(--bad);
+}
+
+.note {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+.note.bad {
+  background: var(--bad-bg);
+  color: #6e170f;
+}
+.note.ok {
+  background: var(--ok-bg);
+  color: #0f4a2b;
+}
+.note.warn {
+  background: var(--warn-bg);
+  color: #5a2e00;
+}
+.note.info {
+  background: var(--info-bg);
+  color: #14306e;
+}
+.note ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.check input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--navy);
+}
+
+.chip {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.chip.ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+/* Auth screens: navy story panel beside the form. */
+.auth {
+  min-height: 100vh;
+  display: flex;
+  flex-wrap: wrap;
+}
+.auth-side {
+  flex: 1 1 380px;
+  background: var(--navy);
+  color: #fff;
+  padding: 48px clamp(24px, 5vw, 64px);
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  position: relative;
+  overflow: hidden;
+}
+.auth-side .ring {
+  position: absolute;
+  right: -90px;
+  bottom: -90px;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  border: 44px solid var(--gold);
+  opacity: 0.9;
+}
+.auth-side .eyebrow {
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.auth-side h1 {
+  font-size: clamp(32px, 4vw, 46px);
+  margin-top: 10px;
+}
+.auth-side ul {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #dbe3f5;
+}
+.auth-side li::before {
+  content: '✓';
+  color: var(--gold);
+  font-weight: 700;
+  margin-right: 10px;
+}
+.auth-side .foot {
+  margin-top: auto;
+  font-size: 14px;
+  color: #c9d2e3;
+  position: relative;
+}
+.auth-side .foot a {
+  color: var(--gold);
+}
+.auth-main {
+  flex: 1 1 460px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+}
+.card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.card h2 {
+  font-size: 30px;
+}
+.card .sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.section-title {
+  margin: 8px 0 -6px;
+  font-size: 18px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 19px;
+}
+.brand:hover {
+  text-decoration: none;
+}
+.brand .mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--gold);
+  color: var(--navy);
+  display: grid;
+  place-items: center;
+}
+.code-input {
+  min-height: 56px;
+  font:
+    500 26px ui-monospace,
+    'JetBrains Mono',
+    monospace;
+  letter-spacing: 0.5em;
+  text-align: center;
+}
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Signed-in pages */
+.topbar {
+  background: var(--navy);
+  padding: 16px clamp(16px, 4vw, 40px);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+dl.facts {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 15px;
+}
+dl.facts dt {
+  color: var(--muted);
+}
+dl.facts dd {
+  margin: 0;
+}

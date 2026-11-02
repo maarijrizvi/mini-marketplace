@@ -1,0 +1,40 @@
+{
+  "name": "mini-marketplace",
+  "private": true,
+  "description": "Multi-vendor marketplace: NestJS API, SQS worker and Next.js web app.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose down",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e --workspace @mm/api",
+    "db:migrate": "npm run db:migrate --workspace @mm/api",
+    "db:seed": "npm run db:seed --workspace @mm/api",
+    "dev:api": "npm run dev --workspace @mm/api",
+    "dev:worker": "npm run dev --workspace @mm/worker",
+    "dev:web": "npm run dev --workspace @mm/web"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10",
+    "@types/node": "^24",
+    "eslint": "^10",
+    "globals": "^16",
+    "prettier": "^3",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.2"
+  },
+  "type": "module"
+}

@@ -1,0 +1,7 @@
+dist
+.next
+node_modules
+apps/api/src/generated
+apps/api/prisma/migrations
+docs/reference
+package-lock.json

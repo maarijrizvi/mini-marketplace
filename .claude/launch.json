@@ -1,0 +1,8 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "api", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev", "--workspace", "@mm/api"], "port": 4000 },
+    { "name": "worker", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev", "--workspace", "@mm/worker"], "port": 4100 },
+    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev", "--workspace", "@mm/web"], "port": 3000 }
+  ]
+}

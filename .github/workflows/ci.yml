@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mm
+          POSTGRES_PASSWORD: mm
+          POSTGRES_DB: mini_marketplace
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mm -d mini_marketplace" --health-interval 3s --health-timeout 3s --health-retries 20
+      localstack:
+        image: localstack/localstack:4.4
+        env:
+          SERVICES: sqs
+        ports: ['4566:4566']
+      mailpit:
+        image: axllent/mailpit:v1.24
+        ports: ['1025:1025', '8025:8025']
+    env:
+      DATABASE_URL: postgresql://mm:mm@localhost:5432/mini_marketplace
+      AWS_REGION: eu-west-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SQS_ENDPOINT: http://localhost:4566
+      EVENTS_QUEUE_URL: http://localhost:4566/000000000000/mm-events
+      SMTP_HOST: localhost
+      SMTP_PORT: '1025'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Generate Prisma client and build shared package
+        run: |
+          npm run db:generate --workspace @mm/api
+          npm run build --workspace @mm/shared
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: API end-to-end tests (real Postgres)
+        run: npm run test:e2e --workspace @mm/api
+      - name: Worker end-to-end tests (Postgres, SQS, SMTP)
+        run: npm run test:e2e --workspace @mm/worker
+      - name: Build everything
+        run: npm run build
