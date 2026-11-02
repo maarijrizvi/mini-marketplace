@@ -24,7 +24,7 @@ npm run infra:up          # Postgres, LocalStack (SQS), Mailpit
 npm run db:generate --workspace @mm/api
 npm run build --workspace @mm/shared
 npm run db:migrate        # apply migrations
-npm run db:seed           # categories + a dev admin (see .env)
+npm run db:seed           # categories, a dev admin and demo shops/products (see .env)
 ```
 
 Then, in three terminals:
@@ -35,7 +35,9 @@ npm run dev:worker
 npm run dev:web      # http://localhost:3000
 ```
 
-Emails (verification codes, reset links) land in Mailpit at http://localhost:8025.
+Emails (verification codes, reset links, order confirmations) land in Mailpit at http://localhost:8025.
+
+With `SEED_DEMO_PASSWORD` set, the seed adds five demo shops (`kiln@example.com`, …) and a customer, `alex@example.com`, all using that password. Checkout uses a sandbox payment provider: pick Success, Failure, Pending or Unknown on the checkout page.
 
 ## Tests
 
@@ -47,7 +49,7 @@ npm run test:e2e --workspace @mm/worker    # outbox → SQS → email, retries, 
 
 End-to-end tests use a separate `mini_marketplace_test` database, created and migrated automatically, so they never touch development data.
 
-## API (so far)
+## API
 
 All routes are under `/api`. Errors come back as `{ message, code?, fieldErrors? }`.
 
@@ -64,6 +66,24 @@ All routes are under `/api`. Errors come back as `{ message, code?, fieldErrors?
 | POST   | `/auth/reset-password`          | One-time link; unlocks the account and signs out every device        |
 | GET    | `/health/live`, `/health/ready` | Kubernetes probes                                                    |
 
+| Method              | Path                                       | Who      | Notes                                                                |
+| ------------------- | ------------------------------------------ | -------- | -------------------------------------------------------------------- |
+| GET                 | `/catalogue/products`, `/products/:id`     | anyone   | Search, category/price/stock filters, sorts, facets; live shops only |
+| GET                 | `/catalogue/categories`                    | anyone   |                                                                      |
+| GET, POST           | `/seller/products`                         | seller   | Own shop only; drafts until the shop is approved                     |
+| PATCH               | `/seller/products/:id`                     | seller   | Price changes are audited and never touch placed orders              |
+| POST, GET           | `/seller/products/:id/stock`, `/movements` | seller   | Adjust on-hand (can’t go below reserved); movement history           |
+| GET                 | `/cart`                                    | customer | Grouped by seller, with selection and availability                   |
+| POST, PATCH, DELETE | `/cart/items[/:productId]`                 | customer | `selectOnly` = Buy now                                               |
+| POST                | `/cart/selection`, `/cart/remove-selected` | customer | Tick/untick items; remove the ticked ones                            |
+| POST                | `/cart/merge`                              | customer | Folds the guest cart in after sign-in                                |
+| GET, POST, DELETE   | `/addresses[/:id]`, `POST /:id/default`    | customer |                                                                      |
+| POST                | `/checkout/quote`                          | customer | Per-seller totals, shipping, promo                                   |
+| POST                | `/checkout`                                | customer | Idempotent by key; reserves stock, pays, settles (see ADR 0004)      |
+| GET                 | `/orders`, `/orders/:id`                   | customer | Own orders only                                                      |
+
 ## Status
 
-Milestone 1 (foundation and accounts) is done. Next: catalogue, cart and multi-seller checkout.
+- Milestone 1 (foundation and accounts): done.
+- Milestone 2 (catalogue, cart and multi-seller checkout): done. Stock reservation rules are in [ADR 0004](docs/adr/0004-inventory-reservations-and-checkout.md).
+- Next: seller fulfilment (confirm, pack, ship per shipment) and the admin console (seller approval, moderation). Pausing a shop isn’t modelled yet.

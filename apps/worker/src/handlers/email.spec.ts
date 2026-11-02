@@ -19,3 +19,20 @@ describe('emailFor', () => {
     expect(email.text).toContain('http://x/reset?token=t');
   });
 });
+
+describe('order emails', () => {
+  it('confirms an order with its number and total', () => {
+    const email = emailFor(
+      envelope('ordering.order_placed', {
+        orderId: 'o',
+        orderNumber: 'MM-10001',
+        customerEmail: 'a@b.co',
+        customerName: 'Alex Morgan',
+        total: '139.60',
+        sellerIds: [],
+      }),
+    )!;
+    expect(email.subject).toBe('Order MM-10001 confirmed');
+    expect(email.text).toContain('139.60');
+  });
+});

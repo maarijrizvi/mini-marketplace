@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { SessionUser } from '@mm/shared';
+import { mergeGuestCart } from '@/lib/guest-cart';
 import { api } from '@/lib/api';
 
 const RESEND_SECONDS = 60;
@@ -31,7 +32,8 @@ export function VerifyForm({ initialEmail }: { initialEmail: string }) {
     setBusy(false);
     if (!res.ok) return setError(res.problem.fieldErrors.code?.[0] ?? res.problem.message);
     const user = res.data.user;
-    router.replace(user.role === 'seller' ? '/seller/application' : '/account');
+    if (user.role === 'customer') await mergeGuestCart();
+    router.replace(user.role === 'seller' ? '/seller/application' : '/');
     router.refresh();
   }
 

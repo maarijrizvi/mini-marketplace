@@ -45,7 +45,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await prisma.$executeRawUnsafe('TRUNCATE users, outbox_events, audit_log RESTART IDENTITY CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE users, categories, outbox_events, audit_log RESTART IDENTITY CASCADE');
 });
 
 afterAll(async () => {
