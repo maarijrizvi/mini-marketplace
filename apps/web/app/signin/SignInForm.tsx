@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { SessionUser } from '@mm/shared';
+import { mergeGuestCart } from '@/lib/guest-cart';
 import { api, type ApiProblem } from '@/lib/api';
 
 /** Only allow returning to a path on this site. */
@@ -26,6 +27,7 @@ export function SignInForm({ next, notice }: { next: string; notice?: string }) 
     setBusy(false);
     if (!res.ok) return setProblem(res.problem);
     const { user } = res.data;
+    if (user.role === 'customer') await mergeGuestCart();
     const fallback =
       user.role === 'admin'
         ? '/admin'
@@ -33,7 +35,7 @@ export function SignInForm({ next, notice }: { next: string; notice?: string }) 
           ? user.seller?.status === 'approved'
             ? '/seller'
             : '/seller/application'
-          : '/account';
+          : '/';
     router.replace(safeNext(next) || fallback);
     router.refresh();
   }

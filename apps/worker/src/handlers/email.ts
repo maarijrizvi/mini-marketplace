@@ -43,6 +43,30 @@ export function emailFor(event: EventEnvelope): Email | null {
         text: `Hi ${first(p.fullName)},\n\nThanks for registering ${p.shopName}. Our team reviews every new shop; we’ll email you when there’s a decision. Meanwhile you can add products as drafts.`,
       };
     }
+    case 'ordering.order_placed': {
+      const p = (event as EventEnvelope<'ordering.order_placed'>).payload;
+      return {
+        to: p.customerEmail,
+        subject: `Order ${p.orderNumber} confirmed`,
+        text: `Hi ${first(p.customerName)},\n\nThanks for your order ${p.orderNumber} (total ${p.total}). Each seller ships their part separately; you can track every parcel from My orders.`,
+      };
+    }
+    case 'ordering.payment_failed': {
+      const p = (event as EventEnvelope<'ordering.payment_failed'>).payload;
+      return {
+        to: p.customerEmail,
+        subject: `Payment for ${p.orderNumber} didn’t go through`,
+        text: `Hi ${first(p.customerName)},\n\nWe couldn’t take payment for order ${p.orderNumber}, so you haven’t been charged. The items are still in your cart if you’d like to try again.`,
+      };
+    }
+    case 'ordering.order_cancelled': {
+      const p = (event as EventEnvelope<'ordering.order_cancelled'>).payload;
+      return {
+        to: p.customerEmail,
+        subject: `Order ${p.orderNumber} was cancelled`,
+        text: `Hi ${first(p.customerName)},\n\nOrder ${p.orderNumber} was cancelled: ${p.reason}. Any payment taken is being refunded.`,
+      };
+    }
     default: {
       const unhandled: never = event.type as never;
       return unhandled;
@@ -55,4 +79,7 @@ export const EMAIL_EVENTS: readonly EventType[] = [
   'identity.password_reset_requested',
   'identity.password_changed',
   'identity.seller_applied',
+  'ordering.order_placed',
+  'ordering.payment_failed',
+  'ordering.order_cancelled',
 ];

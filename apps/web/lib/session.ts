@@ -10,8 +10,9 @@ const COOKIE = process.env.SESSION_COOKIE_NAME ?? 'mm_sid';
 export async function getSessionUser(): Promise<SessionUser | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
-  const res = await fetch(`${API}/api/auth/me`, { headers: { cookie: `${COOKIE}=${token}` }, cache: 'no-store' });
-  if (!res.ok) return null;
+  // If the API can't be reached, treat the visitor as signed out rather than failing the page.
+  const res = await fetch(`${API}/api/auth/me`, { headers: { cookie: `${COOKIE}=${token}` }, cache: 'no-store' }).catch(() => null);
+  if (!res?.ok) return null;
   return ((await res.json()) as { user: SessionUser }).user;
 }
 
@@ -19,7 +20,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 export function homeFor(user: SessionUser) {
   if (user.role === 'admin') return '/admin';
   if (user.role === 'seller') return user.seller?.status === 'approved' ? '/seller' : '/seller/application';
-  return '/account';
+  return '/';
 }
 
 /** Server-side gate for a page: signed in, and (optionally) one of these roles. */

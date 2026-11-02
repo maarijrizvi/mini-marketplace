@@ -33,7 +33,14 @@ export default async function AccountPage() {
             </Link>
           </div>
         </section>
-        <p className="hint">The catalogue, cart and checkout arrive in the next milestone.</p>
+        <section className="panel">
+          <h2 style={{ fontSize: 20 }}>Shopping</h2>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <Link href="/shop">Browse the shop</Link>
+            <Link href="/cart">Your cart</Link>
+            <Link href="/orders">My orders</Link>
+          </div>
+        </section>
       </main>
     </>
   );

@@ -36,6 +36,9 @@ export default async function SellerApplicationPage() {
             <dd>{user.phone}</dd>
           </dl>
         </section>
+        <p>
+          <a href="/seller/products">Add products as drafts →</a>
+        </p>
       </main>
     </>
   );
