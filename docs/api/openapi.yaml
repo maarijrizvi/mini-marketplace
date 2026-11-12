@@ -1,0 +1,2619 @@
+openapi: 3.1.0
+info:
+  title: Mini Marketplace API
+  version: 1.0.0-draft
+  summary: Multi-seller marketplace with COD and online payment, one parcel per seller.
+  description: |
+    Contract for the Mini Marketplace HTTP API, derived from `the_ERD.pdf` and the API design doc.
+
+    Conventions that apply to every operation:
+
+    - **IDs** are `bigint` keys sent as strings of digits (`"10482"`).
+    - **Money** is integer paisa (`129900` = Rs 1,299). Never floats or formatted strings.
+    - **Times** are ISO 8601 in UTC.
+    - **Errors** are `{ code, message, fieldErrors? }` with a stable machine-readable `code`.
+    - **Lists** use cursor pagination: `?limit=&cursor=` returns `{ items, nextCursor }`.
+    - **Status changes** are action endpoints, never a `PATCH` of `status`. A move the state machine
+      doesn't allow returns `409 invalid_transition`.
+    - **Ownership:** a row that exists but isn't yours returns `404`, so ids can't be probed.
+    - **Retries:** operations that take an `Idempotency-Key` header return the first result again for a
+      repeated key (`200` instead of `201`).
+    - **Audit:** every write adds an `audit_log` row with the actor; webhook payloads are stored as received.
+    - Every response carries `X-Request-Id`.
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Local development
+tags:
+  - name: Auth
+  - name: Me
+  - name: Catalog
+  - name: Seller catalog
+  - name: Cart
+  - name: Checkout
+  - name: Orders
+  - name: Seller orders
+  - name: Money
+  - name: Admin
+  - name: Webhooks
+  - name: Sandbox
+    description: Simulated payment gateway and Leopards Courier. Disabled in production.
+  - name: Health
+
+security:
+  - userToken: []
+
+paths:
+  # ───────────────────────── Auth ─────────────────────────
+  /auth/signup:
+    post:
+      operationId: postAuthSignup
+      tags: [Auth]
+      summary: Create a customer account
+      description: Creates an unverified `users` row and emails a verification link. Does not sign in.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignUpRequest' }
+      responses:
+        '201':
+          description: Account created; verification email queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: '`email_taken`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/verify-email:
+    post:
+      operationId: postAuthVerifyEmail
+      tags: [Auth]
+      summary: Confirm an email from the emailed link and sign in
+      description: Sets `users.email_verified_at`. The token is signed and short-lived; no table stores it.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+      responses:
+        '200':
+          description: Verified and signed in.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/UserTokenCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400':
+          description: '`invalid_token` or `token_expired`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/resend-verification:
+    post:
+      operationId: postAuthResendVerification
+      tags: [Auth]
+      summary: Email a new verification link
+      description: Answers the same whether or not the email exists or is already verified.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailRequest' }
+      responses:
+        '202': { description: Accepted. }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/signin:
+    post:
+      operationId: postAuthSignin
+      tags: [Auth]
+      summary: Sign in as a user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignInRequest' }
+      responses:
+        '200':
+          description: Signed in.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/UserTokenCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '401':
+          description: '`invalid_credentials`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403':
+          description: '`email_not_verified`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/signout:
+    post:
+      operationId: postAuthSignout
+      tags: [Auth]
+      summary: Sign out
+      description: Clears the cookie. Tokens are stateless, so a copied token stays valid until it expires.
+      responses:
+        '204':
+          description: Signed out.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/UserTokenCookie' }
+
+  /auth/forgot-password:
+    post:
+      operationId: postAuthForgotPassword
+      tags: [Auth]
+      summary: Email a password reset link
+      description: Answers the same whether or not the email exists.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailRequest' }
+      responses:
+        '202': { description: Accepted. }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/reset-password:
+    post:
+      operationId: postAuthResetPassword
+      tags: [Auth]
+      summary: Set a new password from the emailed link
+      description: |
+        The reset token embeds a fingerprint of the current `password_hash`, so it stops working once
+        the password changes and can't be used twice.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+      responses:
+        '204': { description: Password changed. }
+        '400':
+          description: '`invalid_token`, `token_expired` or field errors on `password`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/auth/signin:
+    post:
+      operationId: postAdminAuthSignin
+      tags: [Auth]
+      summary: Sign in as an admin
+      description: Checks the `admins` table only and sets `last_login_at`. An inactive admin gets `401`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignInRequest' }
+      responses:
+        '200':
+          description: Signed in.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/AdminTokenCookie' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminEnvelope' }
+        '401':
+          description: '`invalid_credentials`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /admin/auth/signout:
+    post:
+      operationId: postAdminAuthSignout
+      tags: [Auth]
+      summary: Sign out an admin
+      security:
+        - adminToken: []
+      responses:
+        '204':
+          description: Signed out.
+          headers:
+            Set-Cookie: { $ref: '#/components/headers/AdminTokenCookie' }
+
+  /admin/me:
+    get:
+      operationId: getAdminMe
+      tags: [Auth]
+      summary: The signed-in admin
+      security:
+        - adminToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ───────────────────────── Me ─────────────────────────
+  /me:
+    get:
+      operationId: getMe
+      tags: [Me]
+      summary: The signed-in user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      operationId: patchMe
+      tags: [Me]
+      summary: Update name or phone
+      description: Never changes email or seller fields.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/password:
+    post:
+      operationId: postMePassword
+      tags: [Me]
+      summary: Change password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '204': { description: Changed. }
+        '400':
+          description: '`wrong_password` or field errors on `newPassword`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/addresses:
+    get:
+      operationId: getMeAddresses
+      tags: [Me]
+      summary: Saved addresses, default first
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AddressList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: postMeAddresses
+      tags: [Me]
+      summary: Add an address
+      description: Appended to `users.addresses`; the first address added becomes the default.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressInput' }
+      responses:
+        '201':
+          description: Added. Returns the full list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AddressList' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/addresses/{addressId}:
+    parameters:
+      - $ref: '#/components/parameters/AddressId'
+    patch:
+      operationId: patchMeAddressesByAaddressI
+      tags: [Me]
+      summary: Edit an address
+      description: Past orders keep their own copy in `orders.shipping_address`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressInput' }
+      responses:
+        '200':
+          description: Updated. Returns the full list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AddressList' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteMeAddressesByAaddressI
+      tags: [Me]
+      summary: Remove an address
+      description: Removing the default makes the next one the default.
+      responses:
+        '200':
+          description: Removed. Returns the full list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AddressList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/addresses/{addressId}/default:
+    parameters:
+      - $ref: '#/components/parameters/AddressId'
+    post:
+      operationId: postMeAddressesByAaddressIDefault
+      tags: [Me]
+      summary: Make an address the default
+      description: Moves it to the front of the list.
+      responses:
+        '200':
+          description: OK. Returns the full list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AddressList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/seller-application:
+    post:
+      operationId: postMeSellerApplication
+      tags: [Me]
+      summary: Apply to sell
+      description: Sets `shop_name` and `seller_status` = `pending`. Allowed again after a rejection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SellerApplicationRequest' }
+      responses:
+        '200':
+          description: Application submitted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: '`shop_name_taken`, or `invalid_transition` when already pending, approved or suspended'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ───────────────────────── Catalog ─────────────────────────
+  /categories:
+    get:
+      operationId: getCategories
+      tags: [Catalog]
+      summary: All categories
+      description: Flat list with `parentId`; clients build the tree.
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Category' }
+
+  /categories/{slug}:
+    get:
+      operationId: getCategoriesBySslu
+      tags: [Catalog]
+      summary: One category by slug
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /products:
+    get:
+      operationId: getProducts
+      tags: [Catalog]
+      summary: Browse and search products
+      description: |
+        Only `active` products of `approved` sellers with at least one active variant.
+        Price filters and sorting use the lowest active variant price.
+      security: []
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: category
+          in: query
+          description: Category slug; includes its sub-categories.
+          schema: { type: string }
+        - name: minPrice
+          in: query
+          schema: { $ref: '#/components/schemas/Money' }
+        - name: maxPrice
+          in: query
+          schema: { $ref: '#/components/schemas/Money' }
+        - name: options
+          in: query
+          description: Variant option filters, e.g. `options[colour]=red&options[size]=M`.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties: { type: string }
+        - name: inStock
+          in: query
+          schema: { type: boolean }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [relevance, newest, price_asc, price_desc]
+            default: relevance
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ProductSummary' }
+
+  /products/{productId}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      operationId: getProductsByPproductI
+      tags: [Catalog]
+      summary: Product detail with its active variants
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Seller catalog ─────────────────────────
+  /seller/products:
+    get:
+      operationId: getSellerProducts
+      tags: [Seller catalog]
+      summary: Own products
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ProductStatus' }
+        - name: q
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SellerProduct' }
+        '403': { $ref: '#/components/responses/NotApprovedSeller' }
+    post:
+      operationId: postSellerProducts
+      tags: [Seller catalog]
+      summary: Create a product (draft)
+      description: '`optionNames` must be keys of the category''s `variantSchema`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '201':
+          description: Created as `draft`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerProduct' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/NotApprovedSeller' }
+
+  /seller/products/{productId}:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    get:
+      operationId: getSellerProductsByPproductI
+      tags: [Seller catalog]
+      summary: One own product with all its variants
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerProduct' }
+        '403': { $ref: '#/components/responses/NotApprovedSeller' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: patchSellerProductsByPproductI
+      tags: [Seller catalog]
+      summary: Edit product details
+      description: '`optionNames` can only change while the product has no variants.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerProduct' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /seller/products/{productId}/publish:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    post:
+      operationId: postSellerProductsByPproductIPublish
+      tags: [Seller catalog]
+      summary: Publish (draft → active)
+      responses:
+        '200':
+          description: Now active.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerProduct' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`invalid_transition` or `no_active_variant`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /seller/products/{productId}/archive:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    post:
+      operationId: postSellerProductsByPproductIArchive
+      tags: [Seller catalog]
+      summary: Archive (draft or active → archived)
+      description: Hides it everywhere; past orders keep their snapshots.
+      responses:
+        '200':
+          description: Archived.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerProduct' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /seller/products/{productId}/variants:
+    parameters:
+      - $ref: '#/components/parameters/ProductId'
+    post:
+      operationId: postSellerProductsByPproductIVariants
+      tags: [Seller catalog]
+      summary: Add a variant
+      description: |
+        `options` must set exactly the product's `optionNames`, each to a value allowed by the category's
+        `variantSchema`. `options` is unique per product and `sku` unique per seller.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VariantInput' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerVariant' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`sku_taken` or `options_taken`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /seller/variants/{variantId}:
+    parameters:
+      - $ref: '#/components/parameters/VariantId'
+    patch:
+      operationId: patchSellerVariantsByVvariantI
+      tags: [Seller catalog]
+      summary: Edit a variant
+      description: A price change is audited and never alters placed orders. `options` can't change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VariantUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerVariant' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`sku_taken`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /seller/variants/{variantId}/stock:
+    parameters:
+      - $ref: '#/components/parameters/VariantId'
+    post:
+      operationId: postSellerVariantsByVvariantIStock
+      tags: [Seller catalog]
+      summary: Adjust stock on hand
+      description: Changes `on_hand` by `delta` under a row lock. Audited with the reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StockAdjustment' }
+      responses:
+        '200':
+          description: Adjusted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerVariant' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`below_reserved`: `on_hand` would drop under `reserved`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ───────────────────────── Cart ─────────────────────────
+  /me/cart:
+    get:
+      operationId: getMeCart
+      tags: [Cart]
+      summary: The cart, grouped by seller
+      description: Prices are read live from the variants; nothing is stored in the cart.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/cart/items:
+    post:
+      operationId: postMeCartItems
+      tags: [Cart]
+      summary: Add a variant
+      description: If the variant is already in the cart its quantity goes up. New lines start ticked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddToCartRequest' }
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: '`variant_unavailable` or `insufficient_stock`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /me/cart/items/{variantId}:
+    parameters:
+      - $ref: '#/components/parameters/VariantId'
+    patch:
+      operationId: patchMeCartItemsByVvariantI
+      tags: [Cart]
+      summary: Change quantity or tick state
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CartItemUpdate' }
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`insufficient_stock`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      operationId: deleteMeCartItemsByVvariantI
+      tags: [Cart]
+      summary: Remove a line
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/cart/selection:
+    post:
+      operationId: postMeCartSelection
+      tags: [Cart]
+      summary: Tick or untick many lines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CartSelectionRequest' }
+      responses:
+        '200':
+          description: The updated cart.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+
+  # ───────────────────────── Checkout ─────────────────────────
+  /checkout/quote:
+    post:
+      operationId: postCheckoutQuote
+      tags: [Checkout]
+      summary: Price the ticked lines
+      description: One parcel per seller, each with its shipping fee. Reserves nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`nothing_selected`, `variant_unavailable` or `insufficient_stock`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /checkout:
+    post:
+      operationId: postCheckout
+      tags: [Checkout]
+      summary: Place an order from the ticked lines
+      description: |
+        In one transaction: re-prices the ticked lines, locks the variants in id order, adds each quantity
+        to `reserved`, creates the order, one `seller_orders` row per seller and the `order_items` with
+        snapshots (name, options, unit price, commission rate), and removes the lines from the cart.
+
+        - **COD:** items are `committed` at once and the order is `placed`.
+        - **Card or wallet:** items are `held` until `reserved_until`, the order is `pending_payment`, and
+          a charge attempt is created. The response carries the gateway redirect.
+
+        A repeated `Idempotency-Key` returns the original order with `200`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckoutRequest' }
+      responses:
+        '201':
+          description: Order created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutResult' }
+        '200':
+          description: Replay of an earlier request with the same key.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            `prices_changed` (the error carries the new `quote` in `details`), `nothing_selected`,
+            `variant_unavailable`, `insufficient_stock`, or `idempotency_key_reused` with a different body.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ───────────────────────── Orders (customer) ─────────────────────────
+  /me/orders:
+    get:
+      operationId: getMeOrders
+      tags: [Orders]
+      summary: Own orders, newest first
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/OrderStatus' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/OrderSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      operationId: getMeOrdersByOorderI
+      tags: [Orders]
+      summary: One own order with parcels, items, charges and refunds
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/orders/{orderId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      operationId: postMeOrdersByOorderICancel
+      tags: [Orders]
+      summary: Cancel the whole order
+      description: |
+        Allowed while the order is `pending_payment` or `placed` and no parcel has been picked up.
+        Releases every item's stock, cancels every parcel, and queues refunds for succeeded online charges.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`invalid_transition`: already cancelled or completed, or a parcel has shipped'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ───────────────────────── Orders (seller) ─────────────────────────
+  /seller/orders:
+    get:
+      operationId: getSellerOrders
+      tags: [Seller orders]
+      summary: Own parcels
+      description: Only parcels of orders that are `placed` or later; unpaid online orders are hidden.
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ParcelStatus' }
+        - name: late
+          in: query
+          description: Only parcels not picked up by `ship_deadline`.
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SellerParcel' }
+        '403': { $ref: '#/components/responses/NotApprovedSeller' }
+
+  /seller/orders/{sellerOrderId}:
+    parameters:
+      - $ref: '#/components/parameters/SellerOrderId'
+    get:
+      operationId: getSellerOrdersBySsellerOrderI
+      tags: [Seller orders]
+      summary: One own parcel
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerParcel' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /seller/orders/{sellerOrderId}/items/{itemId}/drop:
+    parameters:
+      - $ref: '#/components/parameters/SellerOrderId'
+      - $ref: '#/components/parameters/ItemId'
+    post:
+      operationId: postSellerOrdersBySsellerOrderIItemsByIitemIDrop
+      tags: [Seller orders]
+      summary: Drop an item the seller can't fulfil
+      description: |
+        Only while the parcel is `pending`. The item becomes `dropped` and its stock is released.
+        Online order: a refund for the item is queued. COD order: `cod_amount` goes down.
+        Dropping the last active item cancels the parcel; when every parcel is cancelled, the order is too.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DropItemRequest' }
+      responses:
+        '200':
+          description: Dropped.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerParcel' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`invalid_transition`: item already dropped or parcel not `pending`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /seller/orders/{sellerOrderId}/book-pickup:
+    parameters:
+      - $ref: '#/components/parameters/SellerOrderId'
+    post:
+      operationId: postSellerOrdersBySsellerOrderIBookPickup
+      tags: [Seller orders]
+      summary: Book a Leopards pickup
+      description: Queues the `book_leopards_pickup` job; it stores `tracking_no`. Repeat calls are no-ops.
+      responses:
+        '202':
+          description: Booking queued, or already booked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SellerParcel' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`invalid_transition`: parcel not `pending`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ───────────────────────── Money ─────────────────────────
+  /seller/ledger:
+    get:
+      operationId: getSellerLedger
+      tags: [Money]
+      summary: Own ledger entries, newest first
+      parameters:
+        - name: entryType
+          in: query
+          schema: { $ref: '#/components/schemas/LedgerEntryType' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/LedgerEntry' }
+        '403': { $ref: '#/components/responses/NotApprovedSeller' }
+
+  /seller/balance:
+    get:
+      operationId: getSellerBalance
+      tags: [Money]
+      summary: Own balance (sum of ledger entries)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Balance' }
+        '403': { $ref: '#/components/responses/NotApprovedSeller' }
+
+  # ───────────────────────── Admin ─────────────────────────
+  /admin/users:
+    get:
+      operationId: getAdminUsers
+      tags: [Admin]
+      summary: Search users
+      security:
+        - adminToken: []
+      parameters:
+        - name: q
+          in: query
+          description: Matches name, email, phone or shop name.
+          schema: { type: string }
+        - name: sellerStatus
+          in: query
+          schema: { $ref: '#/components/schemas/SellerStatus' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/AdminUserView' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      operationId: getAdminUsersByUuserI
+      tags: [Admin]
+      summary: One user
+      security:
+        - adminToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUserView' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/sellers/{userId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: postAdminSellersByUuserIApprove
+      tags: [Admin]
+      summary: Approve a pending seller
+      security:
+        - adminToken: []
+      responses:
+        '200': { $ref: '#/components/responses/AdminUser' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/sellers/{userId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: postAdminSellersByUuserIReject
+      tags: [Admin]
+      summary: Reject a pending seller
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequiredReasonRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/AdminUser' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/sellers/{userId}/suspend:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: postAdminSellersByUuserISuspend
+      tags: [Admin]
+      summary: Suspend an approved seller
+      description: Their products leave the catalogue and carts. Parcels already placed still need fulfilling.
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequiredReasonRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/AdminUser' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/sellers/{userId}/reinstate:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: postAdminSellersByUuserIReinstate
+      tags: [Admin]
+      summary: Reinstate a suspended seller
+      security:
+        - adminToken: []
+      responses:
+        '200': { $ref: '#/components/responses/AdminUser' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/sellers/{userId}/payouts:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: postAdminSellersByUuserIPayouts
+      tags: [Admin, Money]
+      summary: Record a payout to a seller
+      description: Adds a negative `payout` ledger entry. The bank transfer itself happens outside the system.
+      security:
+        - adminToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PayoutRequest' }
+      responses:
+        '201':
+          description: Recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LedgerEntry' }
+        '200':
+          description: Replay of an earlier request with the same key.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LedgerEntry' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`insufficient_balance` or `not_a_seller`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/categories:
+    post:
+      operationId: postAdminCategories
+      tags: [Admin]
+      summary: Create a category
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryInput' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: '`slug_taken`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/categories/{categoryId}:
+    parameters:
+      - $ref: '#/components/parameters/CategoryId'
+    patch:
+      operationId: patchAdminCategoriesByCcategoryI
+      tags: [Admin]
+      summary: Edit a category
+      description: |
+        A `variantSchema` change may add option values, but can't remove a value an existing variant uses.
+        `parentId` can't create a cycle.
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`slug_taken`, `option_value_in_use` or `category_cycle`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      operationId: deleteAdminCategoriesByCcategoryI
+      tags: [Admin]
+      summary: Delete a category
+      security:
+        - adminToken: []
+      responses:
+        '204': { description: Deleted. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`category_in_use`: it has products or sub-categories'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/orders:
+    get:
+      operationId: getAdminOrders
+      tags: [Admin]
+      summary: Search orders
+      security:
+        - adminToken: []
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/OrderStatus' }
+        - name: paymentMethod
+          in: query
+          schema: { $ref: '#/components/schemas/OrderPaymentMethod' }
+        - name: q
+          in: query
+          description: Order id, customer email or tracking number.
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/OrderSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      operationId: getAdminOrdersByOorderI
+      tags: [Admin]
+      summary: Any order with its parcels and payments
+      security:
+        - adminToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/orders/{orderId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      operationId: postAdminOrdersByOorderICancel
+      tags: [Admin]
+      summary: Cancel an order
+      description: Same rules and effects as the customer's cancel.
+      security:
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequiredReasonRequest' }
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /admin/payments:
+    get:
+      operationId: getAdminPayments
+      tags: [Admin, Money]
+      summary: Search payments
+      security:
+        - adminToken: []
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/PaymentStatus' }
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/PaymentKind' }
+        - name: method
+          in: query
+          schema: { $ref: '#/components/schemas/PaymentMethod' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Payment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/audit-log:
+    get:
+      operationId: getAdminAuditLog
+      tags: [Admin]
+      summary: Read the audit log, newest first
+      security:
+        - adminToken: []
+      parameters:
+        - name: entityType
+          in: query
+          schema: { type: string }
+        - name: entityId
+          in: query
+          schema: { $ref: '#/components/schemas/Id' }
+        - name: actorType
+          in: query
+          schema: { $ref: '#/components/schemas/ActorType' }
+        - name: actorId
+          in: query
+          schema: { $ref: '#/components/schemas/Id' }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/AuditEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/jobs:
+    get:
+      operationId: getAdminJobs
+      tags: [Admin]
+      summary: Background jobs (graphile-worker)
+      security:
+        - adminToken: []
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [queued, running, failed]
+        - name: task
+          in: query
+          schema: { $ref: '#/components/schemas/JobTask' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /admin/jobs/{jobId}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    delete:
+      operationId: deleteAdminJobsByJjobI
+      tags: [Admin]
+      summary: Remove a job that can't succeed
+      description: Only failed or queued jobs; the payload is kept in the audit log.
+      security:
+        - adminToken: []
+      responses:
+        '204': { description: Removed. }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`job_running`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /admin/jobs/{jobId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      operationId: postAdminJobsByJjobIRetry
+      tags: [Admin]
+      summary: Run a failed job again now
+      description: Resets its attempts. Safe because every job checks current state before acting.
+      security:
+        - adminToken: []
+      responses:
+        '200':
+          description: Requeued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`job_running`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ───────────────────────── Webhooks ─────────────────────────
+  /webhooks/payments:
+    post:
+      operationId: postWebhooksPayments
+      tags: [Webhooks]
+      summary: Payment gateway result
+      description: |
+        Charge succeeded: held items committed, order `placed`. Charge failed: the attempt is `failed`,
+        held items are released and the order is `cancelled` (the customer checks out again). Refund
+        result: the refund row becomes final.
+        Repeat-safe: `provider_ref` is unique and a final row is never changed. Raw payload stored in the audit log.
+      security:
+        - webhookSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentWebhook' }
+      responses:
+        '200': { description: Accepted (also for repeats). }
+        '401': { description: Bad signature. }
+
+  /webhooks/leopards:
+    post:
+      operationId: postWebhooksLeopards
+      tags: [Webhooks]
+      summary: Leopards Courier parcel event
+      description: |
+        `picked_up` → parcel `shipped`, `picked_up_at` set. `delivered`, `refused`, `delivery_failed` → the
+        matching parcel status. A delivered COD parcel records the COD payment and the seller's sale and
+        commission ledger entries. Status only moves forward; a repeated event is a no-op.
+        When every parcel is final, the order becomes `completed`.
+      security:
+        - webhookSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeopardsWebhook' }
+      responses:
+        '200': { description: Accepted (also for repeats). }
+        '401': { description: Bad signature. }
+        '404': { description: Unknown tracking number. }
+
+  # ───────────────────────── Sandbox ─────────────────────────
+  /sandbox/payments/{paymentId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    post:
+      operationId: postSandboxPaymentsByPpaymentIComplete
+      tags: [Sandbox]
+      summary: Finish a simulated payment
+      description: The simulated gateway page calls this; it then sends `/webhooks/payments` like a real gateway.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [outcome]
+              properties:
+                outcome:
+                  type: string
+                  enum: [succeeded, failed, no_answer]
+                  description: '`no_answer` sends no webhook, to test the hold expiring.'
+      responses:
+        '202': { description: Webhook sent (or deliberately not). }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sandbox/leopards/{trackingNo}/events:
+    parameters:
+      - name: trackingNo
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: postSandboxLeopardsByTtrackingNEvents
+      tags: [Sandbox]
+      summary: Simulate a courier event
+      description: Sends `/webhooks/leopards` like the real courier would.
+      security:
+        - userToken: []
+        - adminToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event]
+              properties:
+                event: { $ref: '#/components/schemas/LeopardsEvent' }
+      responses:
+        '202': { description: Webhook sent. }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Health ─────────────────────────
+  /health/live:
+    get:
+      operationId: getHealthLive
+      tags: [Health]
+      summary: Liveness probe
+      security: []
+      responses:
+        '200': { description: Process is up. }
+
+  /health/ready:
+    get:
+      operationId: getHealthReady
+      tags: [Health]
+      summary: Readiness probe
+      description: Checks the database connection.
+      security: []
+      responses:
+        '200': { description: Ready. }
+        '503': { description: Not ready. }
+
+components:
+  securitySchemes:
+    userToken:
+      type: apiKey
+      in: cookie
+      name: mm_token
+      description: Signed, expiring JWT for a `users` row. HttpOnly, SameSite=Lax. Nothing stored server-side.
+    adminToken:
+      type: apiKey
+      in: cookie
+      name: mm_admin_token
+      description: Signed, expiring JWT for an `admins` row. Never accepted on user routes, and vice versa.
+    webhookSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: HMAC-SHA256 of the raw body with the provider's shared secret.
+
+  headers:
+    UserTokenCookie:
+      description: Sets or clears `mm_token`.
+      schema: { type: string }
+    AdminTokenCookie:
+      description: Sets or clears `mm_admin_token`.
+      schema: { type: string }
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: One key per attempt, reused on retry. Unique per user.
+      schema: { type: string, minLength: 8, maxLength: 100 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque `nextCursor` from the previous page.
+      schema: { type: string }
+    AddressId:
+      name: addressId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProductId:
+      name: productId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    VariantId:
+      name: variantId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    CategoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    SellerOrderId:
+      name: sellerOrderId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+
+  responses:
+    ValidationError:
+      description: '`validation_failed` with `fieldErrors`'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: '`unauthenticated`: no valid token'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotApprovedSeller:
+      description: '`not_approved_seller`'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: '`not_found` (also for rows that exist but aren''t yours)'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: '`invalid_transition`'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: '`rate_limited`'
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    AdminUser:
+      description: The user after the change.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AdminUserView' }
+
+  schemas:
+    # ── Primitives ──
+    Id:
+      type: string
+      pattern: '^[1-9][0-9]{0,18}$'
+      description: A bigint key as a string.
+      examples: ['10482']
+    Money:
+      type: integer
+      minimum: 0
+      description: Paisa. 129900 = Rs 1,299.
+      examples: [129900]
+    SignedMoney:
+      type: integer
+      description: Paisa, may be negative.
+    Timestamp:
+      type: string
+      format: date-time
+    PageMeta:
+      type: object
+      required: [nextCursor]
+      properties:
+        nextCursor:
+          type: [string, 'null']
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable, machine-readable.
+          examples: [insufficient_stock]
+        message:
+          type: string
+          description: For people; may change.
+        fieldErrors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+        details:
+          type: object
+          description: Extra data for some codes, e.g. the new `quote` for `prices_changed`.
+
+    # ── Enums (mirror the ERD) ──
+    SellerStatus:
+      type: string
+      enum: [pending, approved, rejected, suspended]
+    ProductStatus:
+      type: string
+      enum: [draft, active, archived]
+    OrderStatus:
+      type: string
+      enum: [pending_payment, placed, completed, cancelled]
+    OrderPaymentMethod:
+      type: string
+      enum: [cod, online]
+    ParcelStatus:
+      type: string
+      enum: [pending, shipped, delivered, refused, delivery_failed, cancelled]
+    ItemStatus:
+      type: string
+      enum: [active, dropped]
+    Reservation:
+      type: string
+      enum: [held, committed, released]
+    PaymentKind:
+      type: string
+      enum: [charge, refund]
+    PaymentMethod:
+      type: string
+      enum: [cod, card, wallet]
+    PaymentStatus:
+      type: string
+      enum: [pending, succeeded, failed]
+    LedgerEntryType:
+      type: string
+      enum: [sale, commission, refund, payout]
+    ActorType:
+      type: string
+      enum: [user, admin, system]
+    LeopardsEvent:
+      type: string
+      enum: [picked_up, delivered, refused, delivery_failed]
+    JobTask:
+      type: string
+      enum: [release_expired_reservation, book_leopards_pickup, send_email, issue_refund, post_ledger_entries]
+
+    # ── Identity ──
+    Password:
+      type: string
+      minLength: 8
+      maxLength: 128
+      description: At least 8 characters with a letter and a digit.
+    Phone:
+      type: string
+      description: Pakistani mobile number; stored in E.164, e.g. +923001234567.
+    SignUpRequest:
+      type: object
+      required: [email, password, firstName, lastName, phone]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { $ref: '#/components/schemas/Password' }
+        firstName: { type: string, minLength: 1, maxLength: 60 }
+        lastName: { type: string, minLength: 1, maxLength: 60 }
+        phone: { $ref: '#/components/schemas/Phone' }
+    SignInRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+    EmailRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    TokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string }
+        password: { $ref: '#/components/schemas/Password' }
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string }
+        newPassword: { $ref: '#/components/schemas/Password' }
+    ProfileUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        firstName: { type: string, minLength: 1, maxLength: 60 }
+        lastName: { type: string, minLength: 1, maxLength: 60 }
+        phone: { $ref: '#/components/schemas/Phone' }
+    SellerApplicationRequest:
+      type: object
+      required: [shopName]
+      properties:
+        shopName: { type: string, minLength: 2, maxLength: 60 }
+    User:
+      type: object
+      required: [id, email, firstName, lastName, phone, emailVerified, seller, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        email: { type: string, format: email }
+        firstName: { type: string }
+        lastName: { type: string }
+        phone: { $ref: '#/components/schemas/Phone' }
+        emailVerified: { type: boolean }
+        seller:
+          description: Null until the user applies to sell.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/SellerProfile'
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    SellerProfile:
+      type: object
+      required: [shopName, status, statusReason]
+      properties:
+        shopName: { type: string }
+        status: { $ref: '#/components/schemas/SellerStatus' }
+        statusReason:
+          type: [string, 'null']
+          description: Why it was rejected or suspended.
+    UserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+    AdminUserView:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          required: [reviewedBy, orderCount]
+          properties:
+            reviewedBy:
+              oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/AdminRef'
+            orderCount: { type: integer }
+    Admin:
+      type: object
+      required: [id, email, fullName, lastLoginAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        email: { type: string, format: email }
+        fullName: { type: string }
+        lastLoginAt:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Timestamp'
+    AdminRef:
+      type: object
+      required: [id, fullName]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        fullName: { type: string }
+    AdminEnvelope:
+      type: object
+      required: [admin]
+      properties:
+        admin: { $ref: '#/components/schemas/Admin' }
+    AddressInput:
+      type: object
+      required: [label, recipient, phone, line1, city]
+      properties:
+        label: { type: string, maxLength: 30, examples: [Home] }
+        recipient: { type: string, minLength: 1, maxLength: 120 }
+        phone: { $ref: '#/components/schemas/Phone' }
+        line1: { type: string, minLength: 1, maxLength: 200 }
+        line2: { type: string, maxLength: 200 }
+        area: { type: string, maxLength: 100 }
+        city: { type: string, minLength: 1, maxLength: 100 }
+        province: { type: string, maxLength: 100 }
+        postalCode: { type: string, maxLength: 10 }
+    Address:
+      allOf:
+        - type: object
+          required: [id, isDefault]
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: Made by the app; stable inside the JSONB list.
+            isDefault: { type: boolean }
+        - $ref: '#/components/schemas/AddressInput'
+    ShippingAddress:
+      description: The address as copied onto the order at checkout.
+      $ref: '#/components/schemas/AddressInput'
+    AddressList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Address' }
+
+    # ── Catalog ──
+    VariantSchema:
+      type: object
+      description: 'Allowed values per option name, e.g. `{ "size": ["S","M","L"], "colour": ["red","blue"] }`.'
+      additionalProperties:
+        type: array
+        items: { type: string }
+        minItems: 1
+    VariantOptions:
+      type: object
+      description: 'One value per option name, e.g. `{ "size": "M", "colour": "red" }`.'
+      additionalProperties: { type: string }
+    Category:
+      type: object
+      required: [id, parentId, name, slug, variantSchema]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        parentId:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Id'
+        name: { type: string }
+        slug: { type: string }
+        variantSchema: { $ref: '#/components/schemas/VariantSchema' }
+    CategoryInput:
+      type: object
+      required: [name, slug]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        slug: { type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 60 }
+        parentId:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Id'
+        variantSchema: { $ref: '#/components/schemas/VariantSchema' }
+    CategoryUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        slug: { type: string, pattern: '^[a-z0-9]+(-[a-z0-9]+)*$', maxLength: 60 }
+        parentId:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Id'
+        variantSchema: { $ref: '#/components/schemas/VariantSchema' }
+    ImageUrl:
+      type: string
+      format: uri
+    SellerRef:
+      type: object
+      required: [id, shopName]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        shopName: { type: string }
+    ProductSummary:
+      type: object
+      required: [id, name, seller, categoryId, image, priceFrom, priceTo, inStock]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        seller: { $ref: '#/components/schemas/SellerRef' }
+        categoryId: { $ref: '#/components/schemas/Id' }
+        image:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/ImageUrl'
+        priceFrom: { $ref: '#/components/schemas/Money' }
+        priceTo: { $ref: '#/components/schemas/Money' }
+        inStock: { type: boolean }
+    Variant:
+      type: object
+      required: [id, options, price, available, images]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        options: { $ref: '#/components/schemas/VariantOptions' }
+        price: { $ref: '#/components/schemas/Money' }
+        available:
+          type: integer
+          minimum: 0
+          description: '`on_hand − reserved`'
+        images:
+          type: array
+          description: The variant's own images, else the product's.
+          items: { $ref: '#/components/schemas/ImageUrl' }
+    ProductDetail:
+      type: object
+      required: [id, name, description, seller, category, optionNames, images, variants]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        description: { type: string }
+        seller: { $ref: '#/components/schemas/SellerRef' }
+        category: { $ref: '#/components/schemas/Category' }
+        optionNames:
+          type: array
+          items: { type: string }
+        images:
+          type: array
+          items: { $ref: '#/components/schemas/ImageUrl' }
+        variants:
+          type: array
+          description: Active variants only.
+          items: { $ref: '#/components/schemas/Variant' }
+    ProductInput:
+      type: object
+      required: [categoryId, name, description, optionNames]
+      properties:
+        categoryId: { $ref: '#/components/schemas/Id' }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        description: { type: string, maxLength: 5000 }
+        optionNames:
+          type: array
+          items: { type: string }
+          uniqueItems: true
+        images:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/ImageUrl' }
+    ProductUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        categoryId: { $ref: '#/components/schemas/Id' }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        description: { type: string, maxLength: 5000 }
+        optionNames:
+          type: array
+          items: { type: string }
+          uniqueItems: true
+        images:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/ImageUrl' }
+    SellerVariant:
+      type: object
+      required: [id, sku, options, price, onHand, reserved, available, images, isActive]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        sku: { type: string }
+        options: { $ref: '#/components/schemas/VariantOptions' }
+        price: { $ref: '#/components/schemas/Money' }
+        onHand: { type: integer, minimum: 0 }
+        reserved: { type: integer, minimum: 0 }
+        available: { type: integer, minimum: 0 }
+        images:
+          type: array
+          items: { $ref: '#/components/schemas/ImageUrl' }
+        isActive: { type: boolean }
+    SellerProduct:
+      type: object
+      required: [id, categoryId, name, description, optionNames, images, status, variants, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        categoryId: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        description: { type: string }
+        optionNames:
+          type: array
+          items: { type: string }
+        images:
+          type: array
+          items: { $ref: '#/components/schemas/ImageUrl' }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+        variants:
+          type: array
+          items: { $ref: '#/components/schemas/SellerVariant' }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+        updatedAt: { $ref: '#/components/schemas/Timestamp' }
+    VariantInput:
+      type: object
+      required: [sku, options, price, onHand]
+      properties:
+        sku: { type: string, pattern: '^[A-Za-z0-9._-]{1,40}$' }
+        options: { $ref: '#/components/schemas/VariantOptions' }
+        price:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - minimum: 1
+        onHand: { type: integer, minimum: 0 }
+        images:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/ImageUrl' }
+    VariantUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        sku: { type: string, pattern: '^[A-Za-z0-9._-]{1,40}$' }
+        price:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - minimum: 1
+        images:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/ImageUrl' }
+        isActive: { type: boolean }
+    StockAdjustment:
+      type: object
+      required: [delta, reason]
+      properties:
+        delta:
+          type: integer
+          not: { const: 0 }
+        reason: { type: string, minLength: 1, maxLength: 200 }
+
+    # ── Cart ──
+    AddToCartRequest:
+      type: object
+      required: [variantId, quantity]
+      properties:
+        variantId: { $ref: '#/components/schemas/Id' }
+        quantity: { type: integer, minimum: 1, maximum: 99 }
+    CartItemUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        quantity: { type: integer, minimum: 1, maximum: 99 }
+        selected: { type: boolean }
+    CartSelectionRequest:
+      type: object
+      required: [selected]
+      properties:
+        selected: { type: boolean }
+        variantIds:
+          type: array
+          description: Omit to apply to every line.
+          items: { $ref: '#/components/schemas/Id' }
+    CartLine:
+      type: object
+      required: [variantId, productId, name, options, image, unitPrice, quantity, lineTotal, available, purchasable, selected]
+      properties:
+        variantId: { $ref: '#/components/schemas/Id' }
+        productId: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        options: { $ref: '#/components/schemas/VariantOptions' }
+        image:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/ImageUrl'
+        unitPrice: { $ref: '#/components/schemas/Money' }
+        quantity: { type: integer }
+        lineTotal: { $ref: '#/components/schemas/Money' }
+        available: { type: integer }
+        purchasable:
+          type: boolean
+          description: False when the variant, product or seller is no longer sellable, or stock is short.
+        selected: { type: boolean }
+    CartSellerGroup:
+      type: object
+      required: [seller, lines]
+      properties:
+        seller: { $ref: '#/components/schemas/SellerRef' }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/CartLine' }
+    Cart:
+      type: object
+      required: [groups, selectedCount, selectedSubtotal]
+      properties:
+        groups:
+          type: array
+          items: { $ref: '#/components/schemas/CartSellerGroup' }
+        selectedCount: { type: integer }
+        selectedSubtotal:
+          $ref: '#/components/schemas/Money'
+          description: Items only; shipping is added at checkout.
+
+    # ── Checkout ──
+    QuoteRequest:
+      type: object
+      required: [addressId]
+      properties:
+        addressId: { type: string, format: uuid }
+    QuoteParcel:
+      type: object
+      required: [seller, lines, itemsTotal, shippingFee, total]
+      properties:
+        seller: { $ref: '#/components/schemas/SellerRef' }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/CartLine' }
+        itemsTotal: { $ref: '#/components/schemas/Money' }
+        shippingFee: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+    Quote:
+      type: object
+      required: [parcels, itemsTotal, shippingTotal, total]
+      properties:
+        parcels:
+          type: array
+          items: { $ref: '#/components/schemas/QuoteParcel' }
+        itemsTotal: { $ref: '#/components/schemas/Money' }
+        shippingTotal: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+    CheckoutRequest:
+      type: object
+      required: [addressId, paymentMethod, expectedTotal]
+      properties:
+        addressId: { type: string, format: uuid }
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+          description: '`cod` sets `orders.payment_method` = cod; `card` or `wallet` sets it to online.'
+        expectedTotal:
+          $ref: '#/components/schemas/Money'
+          description: The total the customer saw; a mismatch returns `409 prices_changed`.
+    PaymentRedirect:
+      type: object
+      required: [paymentId, redirectUrl]
+      properties:
+        paymentId: { $ref: '#/components/schemas/Id' }
+        redirectUrl: { type: string, format: uri }
+    CheckoutResult:
+      type: object
+      required: [order, payment]
+      properties:
+        order: { $ref: '#/components/schemas/Order' }
+        payment:
+          description: Null for COD.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/PaymentRedirect'
+
+    # ── Orders ──
+    OrderItem:
+      type: object
+      required: [id, variantId, productName, options, unitPrice, quantity, lineTotal, status, reservation]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        variantId: { $ref: '#/components/schemas/Id' }
+        productName: { type: string, description: Snapshot at checkout. }
+        options: { $ref: '#/components/schemas/VariantOptions' }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+        quantity: { type: integer, minimum: 1 }
+        lineTotal: { $ref: '#/components/schemas/Money' }
+        status: { $ref: '#/components/schemas/ItemStatus' }
+        reservation: { $ref: '#/components/schemas/Reservation' }
+    Parcel:
+      type: object
+      required: [id, seller, status, itemsTotal, shippingFee, codAmount, trackingNo, shipDeadline, pickedUpAt, items]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        seller: { $ref: '#/components/schemas/SellerRef' }
+        status: { $ref: '#/components/schemas/ParcelStatus' }
+        itemsTotal:
+          $ref: '#/components/schemas/Money'
+          description: Active items only.
+        shippingFee: { $ref: '#/components/schemas/Money' }
+        codAmount:
+          description: Cash the courier collects; null for online orders.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Money'
+        trackingNo:
+          type: [string, 'null']
+          description: Set once a pickup is booked.
+        shipDeadline: { $ref: '#/components/schemas/Timestamp' }
+        pickedUpAt:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrderItem' }
+    OrderSummary:
+      type: object
+      required: [id, status, paymentMethod, total, parcelCount, placedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        paymentMethod: { $ref: '#/components/schemas/OrderPaymentMethod' }
+        total: { $ref: '#/components/schemas/Money' }
+        parcelCount: { type: integer }
+        placedAt: { $ref: '#/components/schemas/Timestamp' }
+    Order:
+      type: object
+      required: [id, status, paymentMethod, total, refunded, shippingAddress, reservedUntil, placedAt, parcels, payments]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        paymentMethod: { $ref: '#/components/schemas/OrderPaymentMethod' }
+        total:
+          $ref: '#/components/schemas/Money'
+          description: What was agreed at checkout; never edited.
+        refunded:
+          $ref: '#/components/schemas/Money'
+          description: Sum of succeeded refunds.
+        shippingAddress: { $ref: '#/components/schemas/ShippingAddress' }
+        reservedUntil:
+          description: When held stock is released if unpaid; null for COD or once paid.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Timestamp'
+        placedAt: { $ref: '#/components/schemas/Timestamp' }
+        parcels:
+          type: array
+          items: { $ref: '#/components/schemas/Parcel' }
+        payments:
+          type: array
+          items: { $ref: '#/components/schemas/Payment' }
+    SellerOrderItem:
+      allOf:
+        - $ref: '#/components/schemas/OrderItem'
+        - type: object
+          required: [sku, commissionBps]
+          properties:
+            sku: { type: string }
+            commissionBps:
+              type: integer
+              description: Platform commission copied at checkout. 1000 = 10%.
+    SellerParcel:
+      type: object
+      required: [id, orderId, status, itemsTotal, shippingFee, codAmount, trackingNo, shipDeadline, pickedUpAt, late, shippingAddress, items, placedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        orderId: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/ParcelStatus' }
+        itemsTotal: { $ref: '#/components/schemas/Money' }
+        shippingFee: { $ref: '#/components/schemas/Money' }
+        codAmount:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Money'
+        trackingNo: { type: [string, 'null'] }
+        shipDeadline: { $ref: '#/components/schemas/Timestamp' }
+        pickedUpAt:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Timestamp'
+        late:
+          type: boolean
+          description: Not picked up by `shipDeadline`.
+        shippingAddress: { $ref: '#/components/schemas/ShippingAddress' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SellerOrderItem' }
+        placedAt: { $ref: '#/components/schemas/Timestamp' }
+    ReasonRequest:
+      type: object
+      properties:
+        reason: { type: string, maxLength: 500 }
+    RequiredReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    DropItemRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          enum: [out_of_stock, damaged, cannot_ship_to_address, other]
+        note: { type: string, maxLength: 500 }
+
+    # ── Money ──
+    Payment:
+      type: object
+      required: [id, orderId, sellerOrderId, orderItemId, refundOf, kind, method, status, amount, providerRef, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        orderId: { $ref: '#/components/schemas/Id' }
+        sellerOrderId:
+          description: Set for COD collections.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Id'
+        orderItemId:
+          description: Set for item refunds.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Id'
+        refundOf:
+          description: The charge a refund comes from.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Id'
+        kind: { $ref: '#/components/schemas/PaymentKind' }
+        method: { $ref: '#/components/schemas/PaymentMethod' }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        amount: { $ref: '#/components/schemas/Money' }
+        providerRef: { type: [string, 'null'] }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    LedgerEntry:
+      type: object
+      required: [id, sellerId, sellerOrderId, entryType, amount, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        sellerId: { $ref: '#/components/schemas/Id' }
+        sellerOrderId:
+          description: Null for payouts.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Id'
+        entryType: { $ref: '#/components/schemas/LedgerEntryType' }
+        amount:
+          $ref: '#/components/schemas/SignedMoney'
+          description: sale +, commission −, refund −, payout −.
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    Balance:
+      type: object
+      required: [balance]
+      properties:
+        balance: { $ref: '#/components/schemas/SignedMoney' }
+    PayoutRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          allOf:
+            - $ref: '#/components/schemas/Money'
+            - minimum: 1
+        note: { type: string, maxLength: 200 }
+
+    # ── Operations ──
+    AuditEntry:
+      type: object
+      required: [id, actorType, actorId, entityType, entityId, action, data, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        actorType: { $ref: '#/components/schemas/ActorType' }
+        actorId:
+          description: users.id or admins.id; null for system.
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Id'
+        entityType: { type: string, examples: [seller_order] }
+        entityId: { $ref: '#/components/schemas/Id' }
+        action: { type: string, examples: [item_dropped] }
+        data:
+          type: object
+          description: Details, including raw webhook payloads.
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    Job:
+      type: object
+      required: [id, task, payload, attempts, maxAttempts, lastError, runAt, lockedAt, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        task: { $ref: '#/components/schemas/JobTask' }
+        payload: { type: object }
+        attempts: { type: integer }
+        maxAttempts: { type: integer }
+        lastError: { type: [string, 'null'] }
+        runAt: { $ref: '#/components/schemas/Timestamp' }
+        lockedAt:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/Timestamp'
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+
+    # ── Webhooks ──
+    PaymentWebhook:
+      type: object
+      required: [eventId, providerRef, paymentId, kind, status]
+      properties:
+        eventId: { type: string }
+        providerRef: { type: string, description: The gateway's transaction id. }
+        paymentId: { $ref: '#/components/schemas/Id' }
+        kind: { $ref: '#/components/schemas/PaymentKind' }
+        status:
+          type: string
+          enum: [succeeded, failed]
+        failureReason: { type: string }
+    LeopardsWebhook:
+      type: object
+      required: [eventId, trackingNo, event, occurredAt]
+      properties:
+        eventId: { type: string }
+        trackingNo: { type: string }
+        event: { $ref: '#/components/schemas/LeopardsEvent' }
+        occurredAt: { $ref: '#/components/schemas/Timestamp' }
+        codCollected:
+          $ref: '#/components/schemas/Money'
+          description: On `delivered` for COD parcels.

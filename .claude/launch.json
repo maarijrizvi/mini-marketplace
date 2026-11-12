@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "swagger", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8088", "--directory", "docs/api"], "port": 8088 }
+  ]
+}
