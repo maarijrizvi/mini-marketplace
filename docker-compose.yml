@@ -1,0 +1,96 @@
+# Mini Marketplace: everything behind nginx on port 80.
+#   docker compose up -d --build
+name: mini-marketplace
+
+x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mm}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-mini_marketplace}
+  PUBLIC_URL: ${PUBLIC_URL:?set PUBLIC_URL, e.g. http://203.0.113.10}
+  API_INTERNAL_URL: http://api:8000
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (32+ random characters)}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?set PAYMENT_WEBHOOK_SECRET}
+  LEOPARDS_WEBHOOK_SECRET: ${LEOPARDS_WEBHOOK_SECRET:?set LEOPARDS_WEBHOOK_SECRET}
+  SANDBOX_ENABLED: ${SANDBOX_ENABLED:-true}
+  SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@mini-marketplace.local}
+  SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?set SEED_ADMIN_PASSWORD}
+  SEED_DEMO: ${SEED_DEMO:-false}
+  SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:-Demo1234}
+  MEDIA_DIR: /app/media
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-mini_marketplace}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mm} -d ${POSTGRES_DB:-mini_marketplace}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    environment:
+      MP_WEBROOT: /mailpit/
+      MP_MAX_MESSAGES: "2000"
+      MP_UI_AUTH: ${MAILPIT_UI_AUTH:?set MAILPIT_UI_AUTH as user:password}
+
+  api:
+    build: ./backend
+    command: ["api"]
+    restart: unless-stopped
+    environment: *backend-env
+    volumes:
+      - media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build: ./backend
+    command: ["worker"]
+    restart: unless-stopped
+    environment: *backend-env
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: http://api:8000
+    depends_on:
+      - api
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - media:/srv/media:ro
+    depends_on:
+      - api
+      - web
+      - mailpit
+
+volumes:
+  postgres:
+  media:

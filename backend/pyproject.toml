@@ -1,0 +1,39 @@
+[project]
+name = "mini-marketplace-api"
+version = "0.1.0"
+description = "Mini Marketplace backend: FastAPI + SQLAlchemy + Procrastinate"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "sqlalchemy>=2.0.36",
+  "psycopg[binary,pool]>=3.2",
+  "alembic>=1.14",
+  "pydantic-settings>=2.6",
+  "email-validator>=2.2",
+  "pyjwt>=2.10",
+  "argon2-cffi>=23.1",
+  "phonenumbers>=8.13",
+  "procrastinate>=3.0",
+  "httpx>=0.28",
+  "python-multipart>=0.0.33",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.8"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
