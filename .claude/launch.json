@@ -1,6 +1,13 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "swagger", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8088", "--directory", "docs/api"], "port": 8088 }
+    { "name": "swagger", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "8088", "--directory", "docs/api"], "port": 8088 },
+    {
+      "name": "web-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "env": { "API_INTERNAL_URL": "http://localhost:8080" },
+      "port": 3000
+    }
   ]
 }
