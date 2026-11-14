@@ -16,6 +16,8 @@ export interface paths {
         /**
          * Sign Up
          * @description Create a customer account and email a verification link. Does not sign in.
+         *
+         *     Answers the same whether or not the email is already registered (the owner gets an email instead).
          */
         post: operations["sign_up_api_v1_auth_signup_post"];
         delete?: never;
@@ -1223,7 +1225,7 @@ export interface paths {
         };
         /**
          * Sandbox Payment
-         * @description What the simulated gateway's payment page shows.
+         * @description What the simulated gateway's payment page shows. Only the order's customer can open it.
          */
         get: operations["sandbox_payment_api_v1_sandbox_payments__payment_id__get"];
         put?: never;
@@ -1245,7 +1247,7 @@ export interface paths {
         put?: never;
         /**
          * Sandbox Complete
-         * @description The gateway page's buttons. The gateway then posts `/webhooks/payments`, like a real one.
+         * @description The gateway page's buttons, for the order's customer only. The gateway then posts `/webhooks/payments`.
          */
         post: operations["sandbox_complete_api_v1_sandbox_payments__payment_id__complete_post"];
         delete?: never;
@@ -1265,7 +1267,8 @@ export interface paths {
         put?: never;
         /**
          * Sandbox Courier
-         * @description Simulate a courier scan. Leopards then posts `/webhooks/leopards`. Needs a signed-in seller or admin.
+         * @description Simulate a courier scan; Leopards then posts `/webhooks/leopards`. Only the parcel's own seller or an admin
+         *     can do this; for anyone else the tracking number doesn't exist.
          */
         post: operations["sandbox_courier_api_v1_sandbox_leopards__tracking_no__events_post"];
         delete?: never;
@@ -2415,6 +2418,13 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** SignUpAccepted */
+        SignUpAccepted: {
+            /** Email */
+            email: string;
+            /** Message */
+            message: string;
+        };
         /** SignUpRequest */
         SignUpRequest: {
             /**
@@ -2568,25 +2578,16 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            201: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UserEnvelope"];
+                    "application/json": components["schemas"]["SignUpAccepted"];
                 };
             };
             /** @description Validation failed or a bad link (`validation_failed`, `invalid_token`, …) */
             400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description A business rule refused it (`invalid_transition`, `insufficient_stock`, …) */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2601,6 +2602,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description `rate_limited` */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -6254,6 +6264,15 @@ export interface operations {
                     "application/json": components["schemas"]["SandboxPaymentView"];
                 };
             };
+            /** @description `unauthenticated` or `invalid_credentials` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description `not_found` (also for rows that exist but aren't yours) */
             404: {
                 headers: {
@@ -6296,6 +6315,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description `unauthenticated` or `invalid_credentials` */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description `not_found` (also for rows that exist but aren't yours) */

@@ -26,6 +26,17 @@ def verify_email(s: Session, user: User, token: str) -> None:
     )
 
 
+def account_exists(s: Session, user: User) -> None:
+    _queue(
+        s,
+        user.email,
+        "You already have an account",
+        f"Hi {user.first_name},\n\nSomeone tried to create a Mini Marketplace account with this email, but you already "
+        f"have one. If it was you, sign in at {_url('/signin')} or reset your password at "
+        f"{_url('/forgot-password')}.\n\nIf it wasn't you, you can ignore this email; nothing has changed.",
+    )
+
+
 def reset_password(s: Session, user: User, token: str) -> None:
     _queue(
         s,

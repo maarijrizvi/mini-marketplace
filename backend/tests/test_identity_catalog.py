@@ -20,9 +20,8 @@ def test_sign_up_verify_and_sign_in(client, no_smtp):
             "phone": "0301 2345678",
         },
     )
-    assert r.status_code == 201, r.text
-    assert r.json()["user"]["phone"] == "+923012345678"
-    assert r.json()["user"]["emailVerified"] is False
+    assert r.status_code == 202, r.text
+    assert r.json()["email"] == "sara@example.com"
 
     # Unverified users can't sign in.
     r = client.post(f"{API}/auth/signin", json={"email": "sara@example.com", "password": PASSWORD})
@@ -32,6 +31,7 @@ def test_sign_up_verify_and_sign_in(client, no_smtp):
     token = _link_token(no_smtp[-1]["body"])
     r = client.post(f"{API}/auth/verify-email", json={"token": token})
     assert r.status_code == 200 and r.json()["user"]["emailVerified"] is True
+    assert r.json()["user"]["phone"] == "+923012345678"
     assert client.get(f"{API}/me").status_code == 200  # verification signs in
 
     client.post(f"{API}/auth/signout")
@@ -40,7 +40,7 @@ def test_sign_up_verify_and_sign_in(client, no_smtp):
     assert r.status_code == 200 and client.get(f"{API}/me").status_code == 200
 
 
-def test_sign_up_validation_and_duplicates(client):
+def test_sign_up_validation_and_duplicates(client, no_smtp):
     r = client.post(
         f"{API}/auth/signup",
         json={"email": "x@example.com", "password": "short", "firstName": "", "lastName": "L", "phone": "123"},
@@ -49,9 +49,41 @@ def test_sign_up_validation_and_duplicates(client):
     fields = r.json()["fieldErrors"]
     assert {"password", "firstName"} <= set(fields)
     good = {"email": "x@example.com", "password": PASSWORD, "firstName": "A", "lastName": "B", "phone": "03001234567"}
-    assert client.post(f"{API}/auth/signup", json=good).status_code == 201
-    r = client.post(f"{API}/auth/signup", json={**good, "email": "X@example.com"})
-    assert r.status_code == 409 and r.json()["code"] == "email_taken"
+    first = client.post(f"{API}/auth/signup", json=good)
+    again = client.post(f"{API}/auth/signup", json={**good, "email": "X@example.com"})
+    # QA N-07: the same answer whether or not the email is registered...
+    assert first.status_code == again.status_code == 202 and first.json() == again.json()
+    # ...and a bad phone is refused the same way for a registered email as for a new one.
+    assert client.post(f"{API}/auth/signup", json={**good, "phone": "123"}).status_code == 400
+    run_jobs()
+    # The unverified owner simply gets a fresh confirmation link (two in total).
+    assert [m["subject"] for m in no_smtp] == ["Confirm your email", "Confirm your email"]
+
+
+def test_sign_up_with_a_verified_email_tells_the_owner(client, make, no_smtp):
+    user = make.user()
+    r = client.post(
+        f"{API}/auth/signup",
+        json={"email": user.email, "password": PASSWORD, "firstName": "X", "lastName": "Y", "phone": "03001234567"},
+    )
+    assert r.status_code == 202
+    run_jobs()
+    assert [(m["to"], m["subject"]) for m in no_smtp] == [(user.email, "You already have an account")]
+    # Nothing about the existing account changed.
+    assert client.post(f"{API}/auth/signin", json={"email": user.email, "password": PASSWORD}).status_code == 200
+
+
+def test_qa_n03_password_message_reads_naturally(client):
+    r = client.post(
+        f"{API}/auth/signup",
+        json={"email": "p@example.com", "password": "abc", "firstName": "A", "lastName": "B", "phone": "03001234567"},
+    )
+    assert r.json()["fieldErrors"]["password"] == ["Use at least 8 characters and a number."]
+    r = client.post(
+        f"{API}/auth/signup",
+        json={"email": "p@example.com", "password": "!!", "firstName": "A", "lastName": "B", "phone": "03001234567"},
+    )
+    assert r.json()["fieldErrors"]["password"] == ["Use at least 8 characters, a letter and a number."]
 
 
 def test_password_reset_link_works_once(client, make, no_smtp):
