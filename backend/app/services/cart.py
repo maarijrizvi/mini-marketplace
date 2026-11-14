@@ -74,14 +74,18 @@ def add(s: Session, user: User, variant_id: int, quantity: int) -> CartView:
     if not variant:
         raise ApiError(409, "variant_unavailable", "This item isn't for sale right now.")
     item = repo.line(s, user.id, variant_id)
-    new_quantity = min((item.quantity if item else 0) + quantity, MAX_QUANTITY)
-    if new_quantity > variant.available:
-        raise ApiError(
-            409,
-            "insufficient_stock",
-            f"Only {max(variant.available, 0)} left in stock.",
-            details={"available": max(variant.available, 0)},
-        )
+    in_cart = item.quantity if item else 0
+    new_quantity = min(in_cart + quantity, MAX_QUANTITY)
+    available = max(variant.available, 0)
+    if new_quantity > available:
+        more = max(available - in_cart, 0)
+        if in_cart:
+            message = f"You already have {in_cart} in your cart. " + (
+                f"Only {more} more available." if more else "That's all the stock there is."
+            )
+        else:
+            message = f"Only {available} left in stock." if available else "This item is sold out."
+        raise ApiError(409, "insufficient_stock", message, details={"available": available, "inCart": in_cart})
     if item:
         item.quantity = new_quantity
         item.selected = True

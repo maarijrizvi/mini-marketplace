@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     payment_webhook_secret: str = "dev-payment-webhook-secret"
     leopards_webhook_secret: str = "dev-leopards-webhook-secret"
     sandbox_enabled: bool = True
+    # "user:password" puts /api/docs, /api/redoc and the OpenAPI schema behind HTTP Basic auth. Empty = open.
+    docs_auth: str = ""
 
     commission_bps: int = 1000  # 10 %, copied onto each order item at checkout
     shipping_fee_per_parcel: int = 25000  # Rs 250

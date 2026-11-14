@@ -59,6 +59,12 @@ EOF
   echo "  admin login:  admin@mini-marketplace.local / $admin_pw"
   echo "  mailpit:      mail / $mail_pw"
 fi
+# Settings added after the first deploy get generated the same way, once.
+if ! grep -q '^DOCS_AUTH=' .env; then
+  docs_pw="$(openssl rand -base64 12 | tr -d '/+=')"
+  echo "DOCS_AUTH=docs:$docs_pw" >> .env
+  echo "Added DOCS_AUTH: API docs login is docs / $docs_pw"
+fi
 docker compose up -d --build --remove-orphans
 docker image prune -f >/dev/null
 docker compose ps

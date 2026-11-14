@@ -42,7 +42,7 @@ docker compose up -d --build
 - Shop: http://localhost:8080 — demo customer `alex@example.com`, demo sellers `kiln@example.com`,
   `northfield@example.com`, `lumen@example.com` (password `SEED_DEMO_PASSWORD`, default `Demo1234`)
 - Admin: http://localhost:8080/admin — `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`
-- API docs (Swagger UI): http://localhost:8080/api/docs
+- API docs (Swagger UI): http://localhost:8080/api/docs — behind `DOCS_AUTH` when it's set
 - Email inbox (Mailpit): http://localhost:8080/mailpit/ — `MAILPIT_UI_AUTH`
 
 Payments and the courier are simulated: checkout with card or wallet opens a sandbox gateway page; in the Seller Hub,

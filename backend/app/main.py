@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.api import errors
+from app.api import docs, errors
 from app.api.routes import admin, auth, catalog, integrations, me, seller, shopping
 from app.core.config import get_settings
 
@@ -35,12 +35,13 @@ def create_app() -> FastAPI:
         title="Mini Marketplace API",
         version="1.0.0",
         description=DESCRIPTION,
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
-        openapi_url="/api/v1/openapi.json",
-        swagger_ui_parameters={"persistAuthorization": True, "docExpansion": "none", "defaultModelsExpandDepth": 0},
+        # Served by app.api.docs instead, so they can sit behind a login.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     errors.install(app)
+    docs.install(app, {"persistAuthorization": True, "docExpansion": "none", "defaultModelsExpandDepth": 0})
     for module in (auth, me, catalog, seller, shopping, admin):
         app.include_router(module.router, prefix="/api/v1")
     app.include_router(integrations.router, prefix="/api/v1")

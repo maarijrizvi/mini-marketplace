@@ -17,6 +17,7 @@ from app.data.models import (
     User,
 )
 from app.data.pagination import Page, decode, keyset_page
+from app.data.text import ESCAPE, contains
 
 
 def _full():
@@ -66,7 +67,7 @@ def list_orders(
         stmt = stmt.where(Order.payment_method == payment_method)
     if q:
         conds = [
-            exists().where(User.id == Order.user_id, func.lower(User.email).like(f"%{q.lower()}%")),
+            exists().where(User.id == Order.user_id, func.lower(User.email).like(contains(q), escape=ESCAPE)),
             exists().where(SellerOrder.order_id == Order.id, SellerOrder.tracking_no == q),
         ]
         if q.isdigit():
