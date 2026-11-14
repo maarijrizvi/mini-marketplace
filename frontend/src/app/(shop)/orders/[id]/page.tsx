@@ -24,7 +24,7 @@ function OrderView({ id }: { id: string }) {
     o.status === 'pending_payment'
       ? ['warn', `Waiting for your payment. Your items are held until ${dateTime(o.reservedUntil)}.`]
       : o.status === 'cancelled'
-        ? ['bad', o.payments.some((p) => p.kind === 'refund') ? 'This order was cancelled. Refunds are listed under Payments.' : 'This order was cancelled.']
+        ? ['bad', `This order was cancelled${o.cancelReason ? `: ${o.cancelReason}` : ''}.${o.payments.some((p) => p.kind === 'refund') ? ' Refunds are listed under Payments.' : ''}`]
         : params.get('placed')
           ? ['ok', 'Order placed — thank you. Every seller has been told, and a confirmation email is on its way.']
           : null;
@@ -108,6 +108,12 @@ function OrderView({ id }: { id: string }) {
                   </dd>
                 </>
               )}
+              {o.cancelReason && (
+                <>
+                  <dt>Cancelled</dt>
+                  <dd>{o.cancelReason}</dd>
+                </>
+              )}
               <dt>Ship to</dt>
               <dd>
                 {o.shippingAddress.recipient}, {[o.shippingAddress.line1, o.shippingAddress.area, o.shippingAddress.city].filter(Boolean).join(', ')}
@@ -128,11 +134,13 @@ function OrderView({ id }: { id: string }) {
             </section>
           )}
           {canCancel(o) && (
-            <button className="btn danger" onClick={() => setConfirm(true)}>
-              Cancel order
-            </button>
+            <>
+              <button className="btn danger" onClick={() => setConfirm(true)}>
+                Cancel order
+              </button>
+              <p className="tiny muted">You can cancel until the first parcel is picked up by the courier.</p>
+            </>
           )}
-          <p className="tiny muted">You can cancel until the first parcel is picked up by the courier.</p>
         </aside>
       </div>
       {confirm && (

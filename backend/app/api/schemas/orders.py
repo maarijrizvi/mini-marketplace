@@ -166,6 +166,7 @@ class OrderOut(Camel):
     shipping_address: ShippingAddress
     reserved_until: datetime | None
     placed_at: datetime
+    cancel_reason: str | None = None
     parcels: list[ParcelOut]
     payments: list[PaymentOut]
 

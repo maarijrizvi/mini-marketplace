@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { RequireUser } from '@/components/guards';
+import { useMe } from '@/features/session';
 import { Empty, ErrorNote, Loading, Money, ProductImage, Qty } from '@/components/ui';
-import { optionsLabel } from '@/features/format';
+import { optionsLabel, plural } from '@/features/format';
 import { useCart, useRemoveCartLine, useSelectCartLines, useUpdateCartLine } from '@/features/shopping';
 
 function CartView() {
@@ -28,6 +28,8 @@ function CartView() {
   const lines = cart.groups.flatMap((g) => g.lines);
   const allTicked = lines.every((l) => l.selected);
   const blocked = lines.some((l) => l.selected && !l.purchasable);
+  // Items are counted in units everywhere, the same as the header's cart badge.
+  const selectedUnits = lines.filter((l) => l.selected).reduce((n, l) => n + l.quantity, 0);
 
   return (
     <div className="cols-2">
@@ -36,7 +38,7 @@ function CartView() {
         <div className="card tight row between">
           <label className="check">
             <input type="checkbox" checked={allTicked} disabled={busy} onChange={(e) => select.mutate({ selected: e.target.checked })} />
-            Select all ({lines.length})
+            Select all
           </label>
           <span className="small muted">Ticked items are bought now; the rest stay in your cart.</span>
         </div>
@@ -106,7 +108,7 @@ function CartView() {
       <aside className="card stack" style={{ position: 'sticky', top: 16 }}>
         <h2>Summary</h2>
         <div className="row between">
-          <span>Items ({cart.selectedCount})</span>
+          <span>Items ({selectedUnits})</span>
           <strong>
             <Money paisa={cart.selectedSubtotal} />
           </strong>
@@ -116,13 +118,34 @@ function CartView() {
           <span>Per seller, at checkout</span>
         </div>
         {blocked && <div className="note warn">Untick or fix the items marked in red to continue.</div>}
-        <button className="btn gold block" disabled={cart.selectedCount === 0 || blocked} onClick={() => router.push('/checkout')}>
-          Checkout ({cart.selectedCount})
+        <button className="btn gold block" disabled={selectedUnits === 0 || blocked} onClick={() => router.push('/checkout')}>
+          Checkout ({plural(selectedUnits, 'item')})
         </button>
         <p className="tiny muted">Prices and stock are checked again when you place the order.</p>
       </aside>
     </div>
   );
+}
+
+/** Guests see why the cart needs an account instead of being bounced to sign-in. */
+function GuestOrCart() {
+  const { data: me, isLoading } = useMe();
+  if (isLoading) return <Loading />;
+  if (!me)
+    return (
+      <Empty title="Sign in to see your cart">
+        <p>Your cart is saved to your account, so it follows you between devices.</p>
+        <div className="row" style={{ justifyContent: 'center' }}>
+          <Link href="/signin?next=/cart" className="btn gold">
+            Sign in
+          </Link>
+          <Link href="/signup" className="btn ghost">
+            Create an account
+          </Link>
+        </div>
+      </Empty>
+    );
+  return <CartView />;
 }
 
 export default function CartPage() {
@@ -131,7 +154,7 @@ export default function CartPage() {
       <div className="page-head">
         <h1>Your cart</h1>
       </div>
-      <RequireUser>{() => <CartView />}</RequireUser>
+      <GuestOrCart />
     </div>
   );
 }

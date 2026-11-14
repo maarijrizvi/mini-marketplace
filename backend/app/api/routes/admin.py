@@ -146,13 +146,15 @@ def orders(
 
 @router.get("/orders/{order_id}", response_model=OrderOut, responses=errors(404))
 def order(order_id: Id, s: DB, _: AdminActor):
-    return p.order(ordering.any_order(s, order_id))
+    o = ordering.any_order(s, order_id)
+    return p.order(o, ordering.cancel_reason(s, o))
 
 
 @router.post("/orders/{order_id}/cancel", response_model=OrderOut, responses=errors(404, 409))
 def cancel_order(order_id: Id, body: RequiredReasonRequest, s: DB, actor: AdminActor):
     """Same rules and effects as the customer's cancel."""
-    return p.order(ordering.cancel_by_admin(s, actor, order_id, body.reason))
+    o = ordering.cancel_by_admin(s, actor, order_id, body.reason)
+    return p.order(o, ordering.cancel_reason(s, o))
 
 
 @router.get("/payments", tags=["Money"], response_model=PageOf[PaymentOut])

@@ -257,3 +257,11 @@ textarea.input { padding: 10px 12px; min-height: 100px; resize: vertical; }
   .auth { place-items: start center; min-height: auto; padding-top: 20px; }
   .page { padding-top: 18px; }
 }
+/* Footer sits at the bottom of the window on short pages. */
+.site { min-height: 100vh; display: flex; flex-direction: column; }
+.site > main { flex: 1; }
+.site-footer { margin-top: 40px; }
+main:focus { outline: none; }
+/* Skip link: hidden until focused with the keyboard. */
+.skip-link { position: absolute; left: 12px; top: -60px; z-index: 100; background: var(--gold); color: var(--navy); padding: 10px 14px; border-radius: 8px; font-weight: 700; }
+.skip-link:focus { top: 12px; text-decoration: none; }

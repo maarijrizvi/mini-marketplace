@@ -6,7 +6,7 @@ import { ErrorNote, Field, fieldError } from './ui';
 
 type Address = Schemas['AddressInput'];
 
-const BLANK: Address = { label: 'Home', recipient: '', phone: '', line1: '', line2: '', area: '', city: '', province: '' };
+const BLANK: Address = { label: '', recipient: '', phone: '', line1: '', line2: '', area: '', city: '', province: '' };
 
 export function AddressForm({
   initial,

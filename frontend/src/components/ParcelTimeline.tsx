@@ -1,22 +1,34 @@
 import type { Schemas } from '@/lib/api/client';
-import { parcelSteps } from '@/features/format';
 
-/** Placed → Picked up → Delivered, with the final state shown in red if it ended badly. */
+type Step = { label: string; state: 'done' | 'todo' | 'stop' };
+
+/** The steps a parcel has been through. A parcel that stops early shows where it stopped, in red. */
+function steps(status: Schemas['ParcelStatus']): Step[] {
+  switch (status) {
+    case 'pending':
+      return [{ label: 'Placed', state: 'done' }, { label: 'Picked up', state: 'todo' }, { label: 'Delivered', state: 'todo' }];
+    case 'shipped':
+      return [{ label: 'Placed', state: 'done' }, { label: 'Picked up', state: 'done' }, { label: 'Delivered', state: 'todo' }];
+    case 'delivered':
+      return [{ label: 'Placed', state: 'done' }, { label: 'Picked up', state: 'done' }, { label: 'Delivered', state: 'done' }];
+    case 'refused':
+      return [{ label: 'Placed', state: 'done' }, { label: 'Picked up', state: 'done' }, { label: 'Refused at door', state: 'stop' }];
+    case 'delivery_failed':
+      return [{ label: 'Placed', state: 'done' }, { label: 'Picked up', state: 'done' }, { label: 'Not delivered', state: 'stop' }];
+    case 'cancelled':
+      return [{ label: 'Placed', state: 'done' }, { label: 'Cancelled before pickup', state: 'stop' }];
+  }
+}
+
 export function ParcelTimeline({ status }: { status: Schemas['ParcelStatus'] }) {
-  const reached = { pending: 0, shipped: 1, delivered: 2, refused: 1, delivery_failed: 1, cancelled: 0 }[status];
-  const bad = status === 'refused' || status === 'delivery_failed' || status === 'cancelled';
   return (
     <ol className="steps" style={{ listStyle: 'none', padding: 0 }} aria-label="Parcel progress">
-      {parcelSteps.map((s, i) => {
-        const done = i <= reached;
-        const stop = bad && i === reached + 1;
-        return (
-          <li key={s.key} className={`step ${done ? 'done' : ''} ${stop ? 'stop' : ''}`}>
-            <span className="bar" />
-            {stop ? { refused: 'Refused', delivery_failed: 'Not delivered', cancelled: 'Cancelled' }[status as string] : s.label}
-          </li>
-        );
-      })}
+      {steps(status).map((s) => (
+        <li key={s.label} className={`step ${s.state === 'done' ? 'done' : ''} ${s.state === 'stop' ? 'stop' : ''}`}>
+          <span className="bar" />
+          {s.label}
+        </li>
+      ))}
     </ol>
   );
 }

@@ -26,8 +26,8 @@ from app.data.models import (
     User,
 )
 from app.data.pagination import Page
+from app.data.repositories import audit, catalog, jobs, orders
 from app.data.repositories import cart as cart_repo
-from app.data.repositories import catalog, jobs, orders
 from app.integrations import payment_gateway
 from app.services import money, notifications, stock
 from app.services.cart import CartView, Line, view
@@ -251,6 +251,14 @@ def any_order(s: Session, order_id: int) -> Order:
 
 def search_orders(s: Session, **filters) -> Page[Order]:
     return orders.list_orders(s, **filters)
+
+
+def cancel_reason(s: Session, order: Order) -> str | None:
+    """Why a cancelled order was cancelled (kept in the audit log; the ERD has no column for it)."""
+    if order.status != OrderStatus.cancelled:
+        return None
+    entry = audit.latest_action(s, "order", order.id, "cancelled")
+    return entry.data.get("reason") if entry else None
 
 
 # ── Cancelling ─────────────────────────────────────────────────────────

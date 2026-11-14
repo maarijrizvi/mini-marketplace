@@ -29,6 +29,16 @@ def add(
     return row
 
 
+def latest_action(s: Session, entity_type: str, entity_id: int, action: str) -> AuditLog | None:
+    stmt = (
+        select(AuditLog)
+        .where(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id, AuditLog.action == action)
+        .order_by(AuditLog.id.desc())
+        .limit(1)
+    )
+    return s.scalar(stmt)
+
+
 def find_action(s: Session, entity_type: str, action: str, key_field: str, key: str) -> AuditLog | None:
     """Look up an earlier action by a key stored in `data` (used for idempotent admin actions such as payouts)."""
     stmt = select(AuditLog).where(

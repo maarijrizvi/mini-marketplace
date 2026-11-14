@@ -8,7 +8,8 @@ import { categoryTree, useCategories, useProducts } from '@/features/shopping';
 export default function Home() {
   const { data: cats } = useCategories();
   const { data: newest, isLoading } = useProducts({ sort: 'newest', limit: 8 });
-  const tree = categoryTree(cats?.items ?? []);
+  // Only feature categories that have something on sale.
+  const tree = categoryTree(cats?.items ?? []).filter((c) => (c.productCount ?? 0) > 0);
 
   return (
     <>

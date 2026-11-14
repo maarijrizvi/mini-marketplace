@@ -17,6 +17,20 @@ def categories(s: Session) -> list[Category]:
     return repo.all_categories(s)
 
 
+def product_counts(s: Session) -> dict[int, int]:
+    """Products on sale per category, sub-categories included."""
+    own = repo.visible_counts(s)
+    cats = repo.all_categories(s)
+    children: dict[int | None, list[int]] = {}
+    for c in cats:
+        children.setdefault(c.parent_id, []).append(c.id)
+
+    def total(cid: int) -> int:
+        return own.get(cid, 0) + sum(total(ch) for ch in children.get(cid, []))
+
+    return {c.id: total(c.id) for c in cats}
+
+
 def category_by_slug(s: Session, slug: str) -> Category:
     return repo.category_by_slug(s, slug) or _missing("category")
 

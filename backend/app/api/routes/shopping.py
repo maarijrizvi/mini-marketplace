@@ -126,10 +126,12 @@ def my_orders(
 @router.get("/me/orders/{order_id}", tags=["Orders"], response_model=OrderOut, responses=errors(404))
 def my_order(order_id: Id, user: CurrentUser, s: DB):
     """One order with its parcels, items, charges and refunds."""
-    return p.order(ordering.my_order(s, user, order_id))
+    o = ordering.my_order(s, user, order_id)
+    return p.order(o, ordering.cancel_reason(s, o))
 
 
 @router.post("/me/orders/{order_id}/cancel", tags=["Orders"], response_model=OrderOut, responses=errors(404, 409))
 def cancel(order_id: Id, user: CurrentUser, s: DB, body: ReasonRequest | None = None):
     """Cancel the whole order while nothing has been picked up. Releases stock and refunds online payments."""
-    return p.order(ordering.cancel_by_customer(s, user, order_id, body.reason if body else None))
+    o = ordering.cancel_by_customer(s, user, order_id, body.reason if body else None)
+    return p.order(o, ordering.cancel_reason(s, o))

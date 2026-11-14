@@ -22,6 +22,7 @@ class CategoryOut(Camel):
     name: str
     slug: str
     variant_schema: dict[str, list[str]]
+    product_count: int | None = Field(default=None, description="Products on sale, sub-categories included.")
 
 
 class CategoryList(Camel):

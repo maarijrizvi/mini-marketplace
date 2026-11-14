@@ -81,12 +81,10 @@ export const dropReasons: { value: S['DropItemRequest']['reason']; label: string
   { value: 'other', label: 'Other' },
 ];
 
-/** The steps a parcel goes through, for the tracking timeline. */
-export const parcelSteps: { key: S['ParcelStatus']; label: string }[] = [
-  { key: 'pending', label: 'Placed' },
-  { key: 'shipped', label: 'Picked up' },
-  { key: 'delivered', label: 'Delivered' },
-];
+/** "1 product", "3 products"; pass `many` for irregular plurals. */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 
 export function initials(first: string, last = ''): string {
   return `${first[0] ?? ''}${last[0] ?? ''}`.toUpperCase();
