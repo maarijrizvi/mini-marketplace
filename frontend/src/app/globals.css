@@ -224,3 +224,36 @@ textarea.input { padding: 10px 12px; min-height: 100px; resize: vertical; }
 /* List on the left, detail panel on the right; stacks on narrower screens. */
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 440px); gap: 24px; align-items: start; }
 @media (max-width: 1180px) { .split { grid-template-columns: 1fr; } }
+/* Shop: filter sidebar beside results; on phones the filters fold behind a button so products come first. */
+.shop-grid { display: grid; grid-template-columns: minmax(0, 240px) minmax(0, 1fr); gap: 24px; }
+.show-mobile { display: none; }
+.filter-chip { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--info-bg); color: var(--info); text-transform: capitalize; }
+.filter-chip:hover { background: #dce2fa; }
+.filter-chip:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .shop-grid { grid-template-columns: 1fr; }
+  .show-mobile { display: inline-flex; }
+  .filters:not(.open) { display: none; }
+}
+/* Variant pickers: options that can't combine with the current choice, and ones that are sold out. */
+.btn.opt-unavailable { border-style: dashed; color: var(--muted); background: #fff; opacity: 0.75; }
+.btn.opt-unavailable[aria-pressed='true'] { opacity: 1; }
+.btn.opt-sold-out { text-decoration: line-through; }
+/* Phones: compact header (logo · cart · menu, then search), one-line promo bar, cards start at the top. */
+.mobile-only { display: none !important; }
+.menu-btn { background: rgba(255, 255, 255, 0.12); border: 0; font: 600 15px var(--font-sans), sans-serif; cursor: pointer; }
+@media (max-width: 720px) {
+  .mobile-only { display: flex !important; }
+  .desktop-only { display: none !important; }
+  .site-header .bar { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding-top: 10px; padding-bottom: 12px; }
+  .brand { font-size: 17px; }
+  .hsearch { grid-column: 1 / -1; }
+  .hsearch input { min-height: 44px; }
+  .hsearch svg { top: 12px; }
+  .main-nav { display: none; grid-column: 1 / -1; }
+  .main-nav.open { display: flex; flex-direction: column; align-items: stretch; border-top: 1px solid var(--navy-3); padding-top: 6px; }
+  .main-nav.open .btn { justify-content: center; }
+  .promo .wrap { padding-top: 6px; padding-bottom: 6px; font-size: 13px; }
+  .auth { place-items: start center; min-height: auto; padding-top: 20px; }
+  .page { padding-top: 18px; }
+}

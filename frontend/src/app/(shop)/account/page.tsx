@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { AddressForm } from '@/components/AddressForm';
 import { RequireUser } from '@/components/guards';
-import { ErrorNote, Field, fieldError, StatusChip } from '@/components/ui';
+import { Dialog, ErrorNote, Field, fieldError, hasFieldErrors, StatusChip } from '@/components/ui';
 import { sellerStatus } from '@/features/format';
 import type { User } from '@/features/session';
 import { useAddressMutations, useAddresses } from '@/features/shopping';
@@ -25,16 +25,16 @@ function Profile({ me }: { me: User }) {
     >
       <h2>Profile</h2>
       {save.isSuccess && <div className="note ok">Saved.</div>}
-      {!fieldError(save.error, 'phone') && <ErrorNote error={save.error} />}
+      {!hasFieldErrors(save.error) && <ErrorNote error={save.error} />}
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-        <Field label="First name" id="fn">
-          <input id="fn" className="input" value={f.firstName} onChange={(e) => setF({ ...f, firstName: e.target.value })} />
+        <Field label="First name" id="fn" error={fieldError(save.error, 'firstName')}>
+          <input id="fn" className="input" aria-invalid={!!fieldError(save.error, 'firstName')} value={f.firstName} onChange={(e) => setF({ ...f, firstName: e.target.value })} />
         </Field>
-        <Field label="Last name" id="ln">
-          <input id="ln" className="input" value={f.lastName} onChange={(e) => setF({ ...f, lastName: e.target.value })} />
+        <Field label="Last name" id="ln" error={fieldError(save.error, 'lastName')}>
+          <input id="ln" className="input" aria-invalid={!!fieldError(save.error, 'lastName')} value={f.lastName} onChange={(e) => setF({ ...f, lastName: e.target.value })} />
         </Field>
         <Field label="Mobile" id="ph" error={fieldError(save.error, 'phone')}>
-          <input id="ph" className="input" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+          <input id="ph" className="input" aria-invalid={!!fieldError(save.error, 'phone')} value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
         </Field>
       </div>
       <p className="small muted">
@@ -83,6 +83,7 @@ function Addresses() {
   const { data } = useAddresses();
   const m = useAddressMutations();
   const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const [removing, setRemoving] = useState<{ id: string; label: string } | null>(null);
   const list = data?.items ?? [];
   return (
     <section className="card stack">
@@ -124,12 +125,25 @@ function Addresses() {
               <button className="linkbtn" onClick={() => setEditing(a.id)}>
                 Edit
               </button>
-              <button className="linkbtn danger" onClick={() => m.remove.mutate(a.id)}>
+              <button className="linkbtn danger" onClick={() => setRemoving({ id: a.id, label: a.label })}>
                 Remove
               </button>
             </div>
           </div>
         ),
+      )}
+      {removing && (
+        <Dialog title={`Remove “${removing.label}”?`} onClose={() => setRemoving(null)}>
+          <p className="muted small">It won’t be offered at checkout any more. Orders already placed keep their own copy of the address.</p>
+          <div className="row">
+            <button className="btn danger" disabled={m.remove.isPending} onClick={() => m.remove.mutate(removing.id, { onSuccess: () => setRemoving(null) })}>
+              Remove address
+            </button>
+            <button className="btn ghost" onClick={() => setRemoving(null)}>
+              Keep it
+            </button>
+          </div>
+        </Dialog>
       )}
       {editing === 'new' && (
         <AddressForm

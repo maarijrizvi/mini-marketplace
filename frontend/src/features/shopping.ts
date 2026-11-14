@@ -19,6 +19,31 @@ export function categoryTree(items: S['CategoryOut'][]) {
   return roots.map((r) => ({ ...r, children: items.filter((c) => c.parentId === r.id) }));
 }
 
+/**
+ * Option filters from the URL (`opt.colour=Red`) that the current category really has. Others are stale, e.g. left
+ * over from the previous category, and would silently hide every product, so they're dropped.
+ */
+export function activeOptions(params: URLSearchParams, schema: Record<string, string[]>): Record<string, string> {
+  const out: Record<string, string> = {};
+  params.forEach((value, key) => {
+    const name = key.startsWith('opt.') ? key.slice(4) : null;
+    if (name && schema[name]?.includes(value)) out[name] = value;
+  });
+  return out;
+}
+
+/** Validate a min/max rupee range typed by the shopper; returns paisa or a message. */
+export function checkPriceRange(lo: string, hi: string): { min: number | null; max: number | null; error: string | null } {
+  const parse = (t: string) => (t.trim() === '' ? null : Number(t));
+  const min = parse(lo);
+  const max = parse(hi);
+  for (const v of [min, max]) {
+    if (v !== null && (!Number.isFinite(v) || v < 0)) return { min: null, max: null, error: 'Enter prices as positive numbers.' };
+  }
+  if (min !== null && max !== null && min > max) return { min: null, max: null, error: "Min price can't be more than max." };
+  return { min: min ? Math.round(min * 100) : null, max: max ? Math.round(max * 100) : null, error: null };
+}
+
 export function useProducts(query: ProductQuery) {
   return useQuery({
     queryKey: ['products', query],
@@ -36,6 +61,32 @@ export function matchVariant(product: S['ProductDetail'], chosen: Record<string,
   return (
     product.variants.find((v) => product.optionNames.every((name) => v.options[name] === chosen[name])) ?? null
   );
+}
+
+export type OptionState = 'available' | 'sold-out' | 'unavailable';
+
+/** Whether `name = value` can be bought alongside the other options already chosen. */
+export function optionState(product: S['ProductDetail'], chosen: Record<string, string>, name: string, value: string): OptionState {
+  const fits = product.variants.filter(
+    (v) => v.options[name] === value && Object.entries(chosen).every(([k, c]) => k === name || v.options[k] === c),
+  );
+  if (!fits.length) return 'unavailable';
+  return fits.some((v) => v.available > 0) ? 'available' : 'sold-out';
+}
+
+/** Choose an option; earlier choices that no variant combines with it are cleared rather than left impossible. */
+export function chooseOption(product: S['ProductDetail'], chosen: Record<string, string>, name: string, value: string) {
+  const next: Record<string, string> = { [name]: value };
+  for (const [k, c] of Object.entries(chosen)) {
+    if (k !== name && product.variants.some((v) => v.options[name] === value && v.options[k] === c)) next[k] = c;
+  }
+  return next;
+}
+
+/** How many of a variant are already in the cart. */
+export function quantityInCart(cart: S['Cart'] | undefined, variantId: string | undefined): number {
+  if (!cart || !variantId) return 0;
+  return cart.groups.flatMap((g) => g.lines).find((l) => l.variantId === variantId)?.quantity ?? 0;
 }
 
 // ── Cart ─────────────────────────────────────────────────────────────

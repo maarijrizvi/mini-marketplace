@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.data.models import Category, Product, ProductStatus, ProductVariant, SellerStatus, User
 from app.data.pagination import Page, decode, keyset_page, offset_page
+from app.data.text import ESCAPE, contains
 
 # ── Categories ─────────────────────────────────────────────────────────
 
@@ -111,8 +112,13 @@ def search_products(
         .options(selectinload(Product.seller))
     )
     if q:
-        like = f"%{q.lower()}%"
-        stmt = stmt.where(or_(func.lower(Product.name).like(like), func.lower(Product.description).like(like)))
+        like = contains(q)
+        stmt = stmt.where(
+            or_(
+                func.lower(Product.name).like(like, escape=ESCAPE),
+                func.lower(Product.description).like(like, escape=ESCAPE),
+            )
+        )
     if category_ids:
         stmt = stmt.where(Product.category_id.in_(category_ids))
     if min_price is not None:
@@ -176,7 +182,7 @@ def seller_products(
     if status:
         stmt = stmt.where(Product.status == status)
     if q:
-        stmt = stmt.where(func.lower(Product.name).like(f"%{q.lower()}%"))
+        stmt = stmt.where(func.lower(Product.name).like(contains(q), escape=ESCAPE))
     if (after := decode(cursor, "i")) is not None:
         stmt = stmt.where(Product.id < after)
     return keyset_page(list(s.scalars(stmt)), limit)

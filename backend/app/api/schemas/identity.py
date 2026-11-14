@@ -23,7 +23,8 @@ def _password(v: str) -> str:
 
 Password = Annotated[str, Field(max_length=128), AfterValidator(_password)]
 Name = Annotated[str, Field(min_length=1, max_length=60)]
-Phone = Annotated[str, Field(min_length=7, max_length=20, description="Pakistani number, stored as E.164.")]
+# Format is checked (with a friendly message) when the number is normalised, so only bound the length here.
+Phone = Annotated[str, Field(min_length=1, max_length=30, description="Pakistani number, stored as E.164.")]
 # For looking up an existing account: any address-shaped string (strict checks happen at sign-up).
 LoginEmail = Annotated[str, Field(max_length=254, pattern=r"^[^@\s]+@[^@\s]+$")]
 

@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.data.models import Admin, Order, SellerStatus, User
 from app.data.pagination import Page, decode, keyset_page
+from app.data.text import ESCAPE, contains
 
 
 def user_by_id(s: Session, user_id: int, *, lock: bool = False) -> User | None:
@@ -36,13 +37,13 @@ def search_users(
 ) -> Page[User]:
     stmt = select(User).order_by(User.id.desc()).limit(limit + 1)
     if q:
-        like = f"%{q.lower()}%"
+        like = contains(q)
         stmt = stmt.where(
             or_(
-                func.lower(User.email).like(like),
-                func.lower(User.first_name + " " + User.last_name).like(like),
-                User.phone.like(f"%{q}%"),
-                func.lower(User.shop_name).like(like),
+                func.lower(User.email).like(like, escape=ESCAPE),
+                func.lower(User.first_name + " " + User.last_name).like(like, escape=ESCAPE),
+                User.phone.like(like, escape=ESCAPE),
+                func.lower(User.shop_name).like(like, escape=ESCAPE),
             )
         )
     if seller_status:
