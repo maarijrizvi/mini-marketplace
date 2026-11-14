@@ -265,3 +265,18 @@ main:focus { outline: none; }
 /* Skip link: hidden until focused with the keyboard. */
 .skip-link { position: absolute; left: 12px; top: -60px; z-index: 100; background: var(--gold); color: var(--navy); padding: 10px 14px; border-radius: 8px; font-weight: 700; }
 .skip-link:focus { top: 12px; text-decoration: none; }
+/* Consoles on phones: a slim top bar (title · current page · Menu) instead of a wrapped sidebar. */
+.side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.side-body { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.side-toggle, .side-current { display: none !important; }
+@media (max-width: 860px) {
+  .side { flex-direction: column; flex-wrap: nowrap; padding: 10px 14px; gap: 0; }
+  .side-top { margin-bottom: 0; }
+  .side-toggle { display: inline-flex !important; width: auto; min-height: 40px; background: rgba(255, 255, 255, 0.12); color: #fff; font-weight: 600; }
+  .side-current { display: inline !important; font-weight: 500; font-size: 14px; color: #c9d2e3; }
+  .side-body { display: none; padding-top: 8px; }
+  .side.open .side-body { display: flex; }
+  .side .foot { flex-direction: column; border-top: 1px solid var(--navy-3); padding-top: 8px; margin-top: 6px; }
+  /* Console tables keep one line per cell and scroll sideways inside their card. */
+  .console .table th, .console .table td { white-space: nowrap; }
+}

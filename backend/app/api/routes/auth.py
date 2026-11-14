@@ -8,6 +8,7 @@ from app.api.schemas.identity import (
     EmailRequest,
     ResetPasswordRequest,
     SignInRequest,
+    SignUpAccepted,
     SignUpRequest,
     TokenRequest,
     UserEnvelope,
@@ -20,15 +21,18 @@ router = APIRouter(tags=["Auth"])
 
 @router.post(
     "/auth/signup",
-    status_code=201,
-    response_model=UserEnvelope,
-    responses=errors(400, 409),
+    status_code=202,
+    response_model=SignUpAccepted,
+    responses=errors(400, 429),
     dependencies=[rate_limit("signup", 10, 60)],
 )
 def sign_up(body: SignUpRequest, s: DB):
-    """Create a customer account and email a verification link. Does not sign in."""
-    user = identity.sign_up(s, **body.model_dump())
-    return UserEnvelope(user=p.user(user))
+    """Create a customer account and email a verification link. Does not sign in.
+
+    Answers the same whether or not the email is already registered (the owner gets an email instead).
+    """
+    identity.sign_up(s, **body.model_dump())
+    return SignUpAccepted(email=body.email.lower(), message="Check your email for a link to confirm your account.")
 
 
 @router.post("/auth/verify-email", response_model=UserEnvelope, responses=errors(400))

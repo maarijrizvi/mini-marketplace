@@ -17,7 +17,8 @@ def _password(v: str) -> str:
     if not re.search(r"\d", v):
         problems.append("a number")
     if problems:
-        raise ValueError("Use " + ", ".join(problems) + ".")
+        listed = problems[0] if len(problems) == 1 else ", ".join(problems[:-1]) + " and " + problems[-1]
+        raise ValueError(f"Use {listed}.")
     return v
 
 
@@ -85,6 +86,11 @@ class UserOut(Camel):
     email_verified: bool
     seller: SellerProfile | None
     created_at: datetime
+
+
+class SignUpAccepted(Camel):
+    email: str
+    message: str
 
 
 class UserEnvelope(Camel):

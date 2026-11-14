@@ -31,10 +31,24 @@ def normalize_phone(raw: str, field: str = "phone") -> str:
 # ── Sign-up and verification ───────────────────────────────────────────
 
 
-def sign_up(s: Session, *, email: str, password: str, first_name: str, last_name: str, phone: str) -> User:
+def sign_up(s: Session, *, email: str, password: str, first_name: str, last_name: str, phone: str) -> None:
+    """Create an account and email a verification link.
+
+    The answer is the same whether or not the email already has an account, so sign-up can't be used to find out
+    who is registered. The address's owner is emailed instead: a fresh verification link if they never verified,
+    otherwise a note that someone tried to sign up with their address.
+    """
     email = email.strip().lower()
-    if repo.email_taken(s, email):
-        raise ApiError(409, "email_taken", "An account with this email already exists. Sign in instead.")
+    phone = normalize_phone(phone)  # validate before the lookup so both paths fail (or pass) the same way
+    existing = repo.user_by_email(s, email)
+    if existing:
+        if existing.email_verified_at is None:
+            _send_verification(s, existing)
+        else:
+            notifications.account_exists(s, existing)
+        record(s, Actor.user(existing.id), "user", existing.id, "signup_attempt_existing_email")
+        s.commit()
+        return
     user = repo.add_user(
         s,
         User(
@@ -42,14 +56,13 @@ def sign_up(s: Session, *, email: str, password: str, first_name: str, last_name
             password_hash=security.hash_password(password),
             first_name=first_name.strip(),
             last_name=last_name.strip(),
-            phone=normalize_phone(phone),
+            phone=phone,
             addresses=[],
         ),
     )
     record(s, Actor.user(user.id), "user", user.id, "signed_up")
     _send_verification(s, user)
     s.commit()
-    return user
 
 
 def _send_verification(s: Session, user: User) -> None:
