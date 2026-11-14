@@ -102,3 +102,60 @@ def test_qa28_categories_report_products_on_sale(client, make):
     listed_product(client, seller, child_obj, [{"sku": "A", "options": {"size": "M"}, "price": 1000, "onHand": 3}])
     counts = {c["slug"]: c["productCount"] for c in client.get(f"{API}/categories").json()["items"]}
     assert counts == {"home": 1, "kitchen": 1, "beauty": 0}
+
+
+def _card_order(client, make, quantity=1):
+    seller, cat = make.seller(), make.category()
+    _, (v,) = listed_product(client, seller, cat, [{"sku": "A", "options": {"size": "M"}, "price": 1000, "onHand": 5}])
+    buyer = make.user()
+    addr = with_address(client, buyer)
+    client.post(f"{API}/me/cart/items", json={"variantId": v["id"], "quantity": quantity})
+    total = client.post(f"{API}/checkout/quote", json={"addressId": addr}).json()["total"]
+    r = client.post(
+        f"{API}/checkout",
+        json={"addressId": addr, "paymentMethod": "card", "expectedTotal": total},
+        headers={"Idempotency-Key": f"sandbox-test-{seller.id}"},
+    )
+    return seller, buyer, r.json()
+
+
+def test_n02_only_the_orders_customer_can_use_its_sandbox_payment_page(client, make):
+    _, buyer, result = _card_order(client, make)
+    pay = result["payment"]["paymentId"]
+    url = f"{API}/sandbox/payments/{pay}"
+    client.cookies.clear()
+    assert client.get(url).status_code == 401
+    assert client.post(f"{url}/complete", json={"outcome": "failed"}).status_code == 401
+    as_user(client, make.user())  # a different customer
+    assert client.get(url).status_code == 404
+    assert client.post(f"{url}/complete", json={"outcome": "failed"}).status_code == 404
+    as_user(client, buyer)
+    assert client.get(url).status_code == 200
+    assert client.post(f"{url}/complete", json={"outcome": "succeeded"}).status_code == 202
+
+
+def test_n01_only_the_parcels_seller_or_an_admin_can_simulate_courier_scans(client, make):
+    from conftest import as_admin, run_jobs
+
+    seller, buyer, result = _card_order(client, make)
+    as_user(client, buyer)
+    client.post(f"{API}/sandbox/payments/{result['payment']['paymentId']}/complete", json={"outcome": "succeeded"})
+    run_jobs()
+    parcel_id = result["order"]["parcels"][0]["id"]
+    as_user(client, seller)
+    client.post(f"{API}/seller/orders/{parcel_id}/book-pickup")
+    run_jobs()
+    tracking = client.get(f"{API}/seller/orders/{parcel_id}").json()["trackingNo"]
+    url = f"{API}/sandbox/leopards/{tracking}/events"
+
+    client.cookies.clear()
+    assert client.post(url, json={"event": "picked_up"}).status_code == 401
+    for intruder in (buyer, make.user(), make.seller()):  # the buyer, a stranger and another seller
+        as_user(client, intruder)
+        assert client.post(url, json={"event": "picked_up"}).status_code == 404
+    as_user(client, seller)
+    assert client.get(f"{API}/seller/orders/{parcel_id}").json()["status"] == "pending"  # nothing moved
+    assert client.post(url, json={"event": "picked_up"}).status_code == 202
+    client.cookies.clear()
+    as_admin(client, make.admin())
+    assert client.post(url, json={"event": "delivered"}).status_code == 202
