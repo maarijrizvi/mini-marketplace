@@ -26,6 +26,9 @@ export function Console({
   const path = usePathname();
   return (
     <div className="console">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
       <aside className="side" aria-label={`${title} navigation`}>
         <Link href={home} className="title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="mark" aria-hidden="true">
@@ -60,7 +63,9 @@ export function Console({
           </div>
         </div>
       </aside>
-      <main>{children}</main>
+      <main id="main" tabIndex={-1}>
+        {children}
+      </main>
     </div>
   );
 }

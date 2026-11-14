@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useMemo, useState } from 'react';
 import { ProductCard } from '@/components/ProductCard';
 import { Empty, ErrorNote, Loading } from '@/components/ui';
-import { rupees } from '@/features/format';
+import { plural, rupees } from '@/features/format';
 import { activeOptions, categoryTree, checkPriceRange, useCategories, useProducts } from '@/features/shopping';
 import type { ProductQuery } from '@/lib/api/endpoints';
 
@@ -99,7 +99,7 @@ function Catalogue() {
       <div className="page-head">
         <div style={{ minWidth: 0 }}>
           <h1 style={{ overflowWrap: 'anywhere' }}>{query.q ? `Results for “${query.q}”` : (current?.name ?? 'All products')}</h1>
-          <p>{data ? `${data.items.length}${data.nextCursor ? '+' : ''} products` : ' '}</p>
+          <p>{data ? (data.nextCursor ? `${data.items.length}+ products` : plural(data.items.length, 'product')) : ' '}</p>
         </div>
         <div className="row">
           <button className="btn ghost small show-mobile" aria-expanded={filtersOpen} aria-controls="filters" onClick={() => setFiltersOpen((o) => !o)}>
@@ -139,11 +139,11 @@ function Catalogue() {
             {tree.map((c) => (
               <div key={c.id} className="stack" style={{ gap: 0 }}>
                 <button className="linkbtn" onClick={() => setCategory(c.slug)} style={{ fontWeight: category === c.slug ? 700 : 500 }}>
-                  {c.name}
+                  {c.name} <span className="muted tiny">&nbsp;{c.productCount ?? ''}</span>
                 </button>
                 {c.children.map((ch) => (
                   <button key={ch.id} className="linkbtn" style={{ paddingLeft: 14, fontWeight: category === ch.slug ? 700 : 500 }} onClick={() => setCategory(ch.slug)}>
-                    {ch.name}
+                    {ch.name} <span className="muted tiny">&nbsp;{ch.productCount ?? ''}</span>
                   </button>
                 ))}
               </div>

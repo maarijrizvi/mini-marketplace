@@ -9,6 +9,7 @@ const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', weigh
 export const metadata: Metadata = {
   title: { default: 'Mini Marketplace', template: '%s · Mini Marketplace' },
   description: 'One cart for every seller. Pay once, track each parcel.',
+  icons: { icon: '/favicon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

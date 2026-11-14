@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
+import { RedirectIfSignedIn } from '@/components/RedirectIfSignedIn';
 import { ErrorNote, Field, Loading } from '@/components/ui';
 import { isApprovedSeller, useSignIn } from '@/features/session';
 import { ApiError } from '@/lib/api/client';
@@ -76,6 +77,7 @@ function SignIn() {
 export default function SignInPage() {
   return (
     <Suspense fallback={<Loading />}>
+      <RedirectIfSignedIn />
       <SignIn />
     </Suspense>
   );

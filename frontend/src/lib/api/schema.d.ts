@@ -1590,6 +1590,11 @@ export interface components {
             variantSchema: {
                 [key: string]: string[];
             };
+            /**
+             * Productcount
+             * @description Products on sale, sub-categories included.
+             */
+            productCount?: number | null;
         };
         /** CategoryUpdate */
         CategoryUpdate: {
@@ -1640,10 +1645,7 @@ export interface components {
         };
         /** EmailRequest */
         EmailRequest: {
-            /**
-             * Email
-             * Format: email
-             */
+            /** Email */
             email: string;
         };
         /** Error */
@@ -1798,6 +1800,8 @@ export interface components {
              * Format: date-time
              */
             placedAt: string;
+            /** Cancelreason */
+            cancelReason?: string | null;
             /** Parcels */
             parcels: components["schemas"]["ParcelOut"][];
             /** Payments */
@@ -2406,10 +2410,7 @@ export interface components {
         };
         /** SignInRequest */
         SignInRequest: {
-            /**
-             * Email
-             * Format: email
-             */
+            /** Email */
             email: string;
             /** Password */
             password: string;

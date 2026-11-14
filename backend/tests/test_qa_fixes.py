@@ -57,3 +57,48 @@ def test_qa02_docs_can_require_a_login(client, monkeypatch):
         assert r.status_code == 401 and r.headers["www-authenticate"].startswith("Basic"), path
         assert client.get(path, auth=("docs", "wrong")).status_code == 401
         assert client.get(path, auth=("docs", "s3cret")).status_code == 200
+
+
+def test_qa24_search_matches_plurals_and_shop_names(client, make):
+    seller, cat = make.seller("Kiln & Co."), make.category()
+    listed_product(
+        client, seller, cat, [{"sku": "A", "options": {"size": "M"}, "price": 1000, "onHand": 3}], name="Stoneware Mug"
+    )
+    for term in ("mugs", "kiln", "stoneware mug", "MUG"):
+        assert len(client.get(f"{API}/products", params={"q": term}).json()["items"]) == 1, term
+    assert client.get(f"{API}/products", params={"q": "mug teapot"}).json()["items"] == []
+
+
+def test_qa16_cancelled_order_carries_its_reason(client, make):
+    seller, cat = make.seller(), make.category()
+    _, (v,) = listed_product(client, seller, cat, [{"sku": "A", "options": {"size": "M"}, "price": 1000, "onHand": 3}])
+    buyer = make.user()
+    addr = with_address(client, buyer)
+    client.post(f"{API}/me/cart/items", json={"variantId": v["id"], "quantity": 1})
+    total = client.post(f"{API}/checkout/quote", json={"addressId": addr}).json()["total"]
+    order = client.post(
+        f"{API}/checkout",
+        json={"addressId": addr, "paymentMethod": "cod", "expectedTotal": total},
+        headers={"Idempotency-Key": "qa16-key-1"},
+    ).json()["order"]
+    assert order["cancelReason"] is None
+    r = client.post(f"{API}/me/orders/{order['id']}/cancel", json={"reason": "Ordered twice"})
+    assert r.json()["cancelReason"] == "Ordered twice"
+    assert client.get(f"{API}/me/orders/{order['id']}").json()["cancelReason"] == "Ordered twice"
+
+
+def test_qa28_categories_report_products_on_sale(client, make):
+    parent = make.category(slug="home")
+    seller = make.seller()
+    from app.core.db import SessionLocal
+    from app.data.models import Category
+
+    with SessionLocal() as s:
+        child = Category(name="Kitchen", slug="kitchen", parent_id=parent.id, variant_schema={"size": ["M"]})
+        empty = Category(name="Beauty", slug="beauty", variant_schema={})
+        s.add_all([child, empty])
+        s.commit()
+        child_obj = s.get(Category, child.id)
+    listed_product(client, seller, child_obj, [{"sku": "A", "options": {"size": "M"}, "price": 1000, "onHand": 3}])
+    counts = {c["slug"]: c["productCount"] for c in client.get(f"{API}/categories").json()["items"]}
+    assert counts == {"home": 1, "kitchen": 1, "beauty": 0}

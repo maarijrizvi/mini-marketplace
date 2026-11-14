@@ -15,7 +15,8 @@ router = APIRouter(tags=["Catalog"])
 @router.get("/categories", response_model=CategoryList)
 def categories(s: DB):
     """All categories as a flat list with `parentId`; clients build the tree."""
-    return CategoryList(items=[p.category(c) for c in catalog.categories(s)])
+    counts = catalog.product_counts(s)
+    return CategoryList(items=[p.category(c, counts.get(c.id, 0)) for c in catalog.categories(s)])
 
 
 @router.get("/categories/{slug}", response_model=CategoryOut, responses=errors(404))

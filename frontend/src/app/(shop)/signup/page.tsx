@@ -1,12 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { RedirectIfSignedIn } from '@/components/RedirectIfSignedIn';
 import { ErrorNote, Field, fieldError } from '@/components/ui';
 import { useSignUp } from '@/features/session';
 import { ApiError } from '@/lib/api/client';
 
 export default function SignUpPage() {
+  return (
+    <>
+      <Suspense>
+        <RedirectIfSignedIn />
+      </Suspense>
+      <SignUp />
+    </>
+  );
+}
+
+function SignUp() {
   const signUp = useSignUp();
   const [f, setF] = useState({ firstName: '', lastName: '', email: '', phone: '', password: '' });
   const err = (k: string) => fieldError(signUp.error, k);

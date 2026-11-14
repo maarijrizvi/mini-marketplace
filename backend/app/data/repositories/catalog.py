@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.data.models import Category, Product, ProductStatus, ProductVariant, SellerStatus, User
 from app.data.pagination import Page, decode, keyset_page, offset_page
-from app.data.text import ESCAPE, contains
+from app.data.text import ESCAPE, contains, search_stems
 
 # ── Categories ─────────────────────────────────────────────────────────
 
@@ -111,12 +111,14 @@ def search_products(
         .where(_visible())
         .options(selectinload(Product.seller))
     )
-    if q:
-        like = contains(q)
+    # Every word must appear in the product's name, its description or the shop's name.
+    for stem in search_stems(q or ""):
+        like = contains(stem)
         stmt = stmt.where(
             or_(
                 func.lower(Product.name).like(like, escape=ESCAPE),
                 func.lower(Product.description).like(like, escape=ESCAPE),
+                func.lower(User.shop_name).like(like, escape=ESCAPE),
             )
         )
     if category_ids:
@@ -138,6 +140,17 @@ def search_products(
     offset = decode(cursor, "o") or 0
     rows = s.execute(stmt.order_by(*order, Product.id.desc()).offset(offset).limit(limit + 1)).all()
     return offset_page([ProductRow(p, lo, hi, bool(stock)) for p, lo, hi, stock in rows], limit, offset)
+
+
+def visible_counts(s: Session) -> dict[int, int]:
+    """How many products each category has on sale right now (its own, not its sub-categories')."""
+    stmt = (
+        select(Product.category_id, func.count())
+        .join(User, User.id == Product.seller_id)
+        .where(_visible())
+        .group_by(Product.category_id)
+    )
+    return dict(s.execute(stmt).all())
 
 
 def visible_product(s: Session, product_id: int) -> Product | None:

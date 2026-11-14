@@ -64,8 +64,10 @@ def addresses(items: list[dict[str, Any]]) -> i.AddressList:
 # ── Catalog ────────────────────────────────────────────────────────────
 
 
-def category(cat: Category) -> c.CategoryOut:
-    return c.CategoryOut.model_validate(cat)
+def category(cat: Category, product_count: int | None = None) -> c.CategoryOut:
+    out = c.CategoryOut.model_validate(cat)
+    out.product_count = product_count
+    return out
 
 
 def _seller_ref(u: User) -> c.SellerRef:
@@ -232,7 +234,7 @@ def payment(pay) -> od.PaymentOut:
     return od.PaymentOut.model_validate(pay)
 
 
-def order(o_: Order) -> od.OrderOut:
+def order(o_: Order, cancel_reason: str | None = None) -> od.OrderOut:
     refunded = sum(
         pay.amount for pay in o_.payments if pay.kind == PaymentKind.refund and pay.status == PaymentStatus.succeeded
     )
@@ -251,6 +253,7 @@ def order(o_: Order) -> od.OrderOut:
         shipping_address=od.ShippingAddress(**o_.shipping_address),
         reserved_until=min(holds) if holds else None,
         placed_at=o_.placed_at,
+        cancel_reason=cancel_reason,
         parcels=[parcel(p) for p in o_.parcels],
         payments=[payment(x) for x in o_.payments],
     )

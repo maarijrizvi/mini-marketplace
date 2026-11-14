@@ -28,6 +28,12 @@ function OrderPanel({ id }: { id: string }) {
         <dd>
           <Money paisa={o.total} /> {o.refunded > 0 && <span className="muted">(refunded <Money paisa={o.refunded} />)</span>}
         </dd>
+        {o.cancelReason && (
+          <>
+            <dt>Cancelled</dt>
+            <dd>{o.cancelReason}</dd>
+          </>
+        )}
         <dt>Ship to</dt>
         <dd>
           {o.shippingAddress.recipient}, {o.shippingAddress.city}
@@ -68,11 +74,13 @@ function OrderPanel({ id }: { id: string }) {
         ))
       )}
       {canCancel(o) && (
-        <button className="btn danger" onClick={() => setAsking(true)}>
-          Cancel order &amp; refund
-        </button>
+        <>
+          <button className="btn danger" onClick={() => setAsking(true)}>
+            Cancel order &amp; refund
+          </button>
+          <p className="tiny muted">Only possible while nothing has been picked up. Stock goes back to the sellers.</p>
+        </>
       )}
-      <p className="tiny muted">Only possible while nothing has been picked up. Stock goes back to the sellers.</p>
       {asking && (
         <Dialog title={`Cancel order #${o.id}?`} onClose={() => setAsking(false)}>
           <div className="field">

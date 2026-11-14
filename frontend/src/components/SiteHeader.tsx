@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { canUseSellerHub, useMe, useSignOut } from '@/features/session';
 import { cartCount, useCart } from '@/features/shopping';
 
@@ -40,6 +40,27 @@ export function SiteHeader() {
   const count = cartCount(cart);
 
   const [mobileOpen, setMobileOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const menuBox = useRef<HTMLDivElement>(null);
+  // The account menu closes on Escape (focus back on its button) and on a click anywhere outside it.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        menuButton.current?.focus();
+      }
+    };
+    const onDown = (e: MouseEvent) => {
+      if (!menuBox.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [open]);
   const cartLink = (extra = '') => (
     <Link href="/cart" className={`navl ${extra}`} aria-label={`Cart, ${count} items`}>
       <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -81,8 +102,9 @@ export function SiteHeader() {
               <Link href="/orders" className="navl">
                 Orders
               </Link>
-              <div className="desktop-only" style={{ position: 'relative' }}>
+              <div className="desktop-only" style={{ position: 'relative' }} ref={menuBox}>
                 <button
+                  ref={menuButton}
                   className="navl"
                   style={{ background: 'none', border: 0, font: 'inherit', cursor: 'pointer' }}
                   aria-haspopup="menu"
