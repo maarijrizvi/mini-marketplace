@@ -169,9 +169,11 @@ def courier_event(s: Session, payload: dict[str, Any]) -> bool:
     return True
 
 
-def sandbox_courier_event(s: Session, tracking_no: str, event: str) -> bool:
+def sandbox_courier_event(s: Session, tracking_no: str, event: str, *, seller_id: int | None) -> bool:
+    """Queue a simulated courier scan. `seller_id` is the signed-in seller, who may only scan their own parcels;
+    None means an admin, who may scan any. Returns False for a parcel the caller can't see."""
     p = orders.parcel_by_tracking(s, tracking_no)
-    if not p:
+    if not p or (seller_id is not None and p.seller_id != seller_id):
         return False
     jobs.defer(s, "sandbox_leopards_webhook", {"tracking_no": tracking_no, "event": event})
     s.commit()

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import ApiError, invalid_transition, not_found
-from app.data.models import OrderStatus, PaymentKind, PaymentMethod, PaymentStatus, Reservation
+from app.data.models import OrderStatus, PaymentKind, PaymentMethod, PaymentStatus, Reservation, User
 from app.data.repositories import jobs, orders
 from app.data.repositories import money as repo
 from app.integrations import payment_gateway
@@ -99,15 +99,19 @@ def issue_refund(s: Session, payment_id: int) -> None:
 # ── Sandbox gateway ────────────────────────────────────────────────────
 
 
-def sandbox_payment(s: Session, payment_id: int):
+def sandbox_payment(s: Session, payment_id: int, user: User):
+    """The gateway page for one charge. Only the customer who placed the order can see or act on it."""
     payment = repo.payment(s, payment_id)
     if not payment or payment.kind != PaymentKind.charge or payment.method == PaymentMethod.cod:
         raise not_found("Unknown payment.")
-    return payment, orders.get(s, payment.order_id)
+    order = orders.get(s, payment.order_id)
+    if order.user_id != user.id:
+        raise not_found("Unknown payment.")
+    return payment, order
 
 
-def sandbox_complete(s: Session, payment_id: int, outcome: str) -> None:
-    payment, _ = sandbox_payment(s, payment_id)
+def sandbox_complete(s: Session, payment_id: int, outcome: str, user: User) -> None:
+    payment, _ = sandbox_payment(s, payment_id, user)
     if payment.status != PaymentStatus.pending:
         raise invalid_transition("This payment is already finished.")
     if outcome == "no_answer":
