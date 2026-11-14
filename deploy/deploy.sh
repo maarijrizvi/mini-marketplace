@@ -66,6 +66,8 @@ if ! grep -q '^DOCS_AUTH=' .env; then
   echo "Added DOCS_AUTH: API docs login is docs / $docs_pw"
 fi
 docker compose up -d --build --remove-orphans
+# nginx's config is a single-file bind mount; rsync replaces the file, so only a fresh container sees the new one.
+docker compose up -d --force-recreate --no-deps nginx
 docker image prune -f >/dev/null
 docker compose ps
 REMOTE
